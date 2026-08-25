@@ -5,4 +5,5 @@ pkg
 data
 chats
 tmp
+var
 __pycache__
