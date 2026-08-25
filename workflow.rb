@@ -18,7 +18,7 @@ module Cortex
   CORTEX = Scout.var.cortex
 
   def self.write_map
-    map = Scout::Config.get('cortex', 'write_map', default: :lib)
+    map = Scout::Config.get('cortex', 'write_map', default: :current)
     map.to_sym
   end
 
@@ -720,6 +720,7 @@ module Cortex
   task :cortex_continue => :json do |conversation,prompt|
     continue = step(:continue)
     res = continue.load
+    res = Chat.setup(res)
     save_conversation conversation, prompt, res
     {agent_meta: [{role: :meta, content: Chat.serialize_meta({job: continue.short_path})}], content: res.answer}
   end
@@ -734,6 +735,7 @@ module Cortex
   task :cortex_brief => :json do |conversation,prompt,agent|
     continue = step(:continue)
     res = continue.load
+    res = Chat.setup(res)
     save_brief conversation, prompt, res, agent: agent.to_s, job: continue.short_path
     {agent_meta: [{role: :meta, content: Chat.serialize_meta({job: continue.short_path})}], content: res.answer}
   end

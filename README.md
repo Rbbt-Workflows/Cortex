@@ -39,7 +39,7 @@ Nested names are legal in all namespaces (`claims/C42.md`,
 
 Each namespace can exist in more than one location, or path map. Cortex
 resolves resources across readable maps (by default `:lib` then
-`:current`) and writes to a designated write map (`:lib`, configurable
+`:current` and `:user`) and writes to a designated write map (`:current`, configurable
 via `Scout::Config`, keys `cortex.write_map` and `cortex.read_maps`).
 When the same logical name exists in more than one map, reads resolve
 deterministically to the first map but say so explicitly, and listings
@@ -234,12 +234,12 @@ management.
 ## cortex_move
 Move a resource between path maps keeping its logical name
 
-Transfers the canonical resource (e.g. `:current` to `:lib`) following
-resource-sync semantics: content, `.meta` metadata, and `.history`
+Transfers the canonical resource (e.g. `:current` to `:lib` or `:user`)
+following resource-sync semantics: content, `.meta` metadata, and `.history`
 snapshots travel together as one logical object; the source disappears.
-Artifact `.meta` gets a version record (mode `move`) with from/to maps.
-The target must not already exist. Rename changes the logical name, move
-changes the path map — the two stay distinct.
+Artifact `.meta` gets a version record (mode `move`) with from/to maps. The
+target must not already exist. Rename changes the logical name, move changes
+the path map — the two stay distinct.
 
 ## continue_chat
 Compatibility alias of cortex_continue
