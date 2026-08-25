@@ -23,8 +23,8 @@ module Cortex
   end
 
   def self.read_maps
-    maps = Scout::Config.get('cortex', 'read_maps', default: [:lib, :current])
-    maps = [maps] unless Array === maps
+    maps = Scout::Config.get('cortex', 'read_maps', default: [:lib, :current, :user])
+    maps = maps.to_s.split(',').collect{|m| m.strip } unless Array === maps
     maps.collect(&:to_sym)
   end
 
@@ -699,12 +699,6 @@ module Cortex
     agent
   end
 
-  desc <<~EOF
-    Continue a named conversation in the Cortex conversations namespace using
-    an agent, optionally loading an agent brief from the Cortex briefs
-    namespace. Returns a receipt with agent meta pointing at the producing
-    job.
-  EOF
   input :agent, :string, 'Agent name; optionally Agent/brief_name to load a brief stored in the Cortex briefs namespace (e.g. Worker/math loads brief math for agent Worker)', nil
   chat_task :continue do
     agent_conversation = inputs[:agent]
@@ -717,13 +711,6 @@ module Cortex
   # Canonical conversation/brief tools (+ legacy aliases at the bottom)
   # ------------------------------------------------------------------
 
-  desc <<~EOF
-    Continue a named research conversation in the Cortex conversations
-    namespace: appends the prompt to conversations/<conversation>, runs the
-    AgentWorkflow continue task on it, persists the grown conversation and
-    returns a receipt (agent_meta job + answer) only; content stays in the
-    conversation file.
-  EOF
   input :conversation, :string, 'Conversation name in the Cortex conversations namespace', nil, required: true
   input :prompt, :text, 'Prompt to continue the conversation', nil, required: true
   dep :continue, chat: :placeholder do |jobname,options|
@@ -737,12 +724,6 @@ module Cortex
     {agent_meta: [{role: :meta, content: Chat.serialize_meta({job: continue.short_path})}], content: res.answer}
   end
 
-  desc <<~EOF
-    Create or update a brief in the Cortex briefs namespace: briefs/<name> is
-    grown with the prompt (a fresh brief starts prompt-only) and saved with a
-    .meta sidecar (agent, producing job, timestamp). Use before cortex_continue
-    when an agent needs a reusable brief.
-  EOF
   input :conversation, :string, 'Brief name in the Cortex briefs namespace; it does not need to contain the agent name', nil, required: true
   input :prompt, :text, 'Prompt for the agent that will produce the brief', nil, required: true
   input :agent, :string, 'Agent the brief is for (e.g. Worker); recorded in the briefs .meta sidecar and used to produce the brief', nil, required: true
@@ -761,14 +742,6 @@ module Cortex
   # Workspace exploration tools
   # ------------------------------------------------------------------
 
-  desc <<~EOF
-    List the Cortex workspace namespaces: metadata only (name, size, mtime;
-    message count for conversations/briefs). Dot-dirs (.meta, .history) are
-    never listed. Names present in more than one readable path map are
-    tagged with their map. Supports offset/limit pagination; the footer
-    reports total entries and the next offset when more exist. Use
-    cortex_read to fetch content, cortex_search to find content by keyword.
-  EOF
   input :type, :select, "Namespace to list: conversations, briefs, artifacts, or all (three namespaces with counts)", 'all', select_options: %w(conversations briefs artifacts all)
   input :prefix, :string, 'Only names starting with this prefix', nil
   input :offset, :integer, 'Skip the first N entries (pagination)', 0
@@ -778,14 +751,6 @@ module Cortex
     listing_text type, prefix, offset, limit
   end
 
-  desc <<~EOF
-    Lexical (case-insensitive) search over conversation and brief message
-    content plus artifact file contents, across all readable path maps.
-    Single-term queries use substring match; multi-term queries require
-    every term (AND). Returns compact matches with short snippets (~200
-    chars) only, never whole files; hits whose name exists in more than one
-    path map carry the map tag. Raise the limit or use cortex_read for more.
-  EOF
   input :query, :string, 'Keyword(s) to search for; multiple terms are ANDed', nil, required: true
   input :type, :select, "Restrict search: conversations, briefs, artifacts, or all", 'all', select_options: %w(conversations briefs artifacts all)
   input :limit, :integer, 'Maximum number of matches to return', 20
@@ -806,16 +771,6 @@ module Cortex
     end
   end
 
-  desc <<~EOF
-    Read from the Cortex workspace with bounded output. For conversations and
-    briefs the default is a compact per-message index (role + fingerprint);
-    use last or range for message content (capped at 50k chars). Artifacts
-    are read with line-based pagination (start_line + lines; default 200
-    lines per page, same 50k cap); the header reports the returned range,
-    total lines, and the next start line. Conversation indices exclude
-    empty separator messages. Resources found in more than one path map
-    resolve to the first readable map and report the ambiguity.
-  EOF
   input :name, :string, 'Name of the conversation, brief, or artifact (artifacts may include subdirs, e.g. claims/C42.md)', nil, required: true
   input :type, :select, "Namespace of the item to read", nil, {select_options: %w(conversations briefs artifacts), required: true, jobname: true}
   input :last, :integer, 'Trailing N messages of a conversation/brief (full content)', nil
@@ -834,14 +789,6 @@ module Cortex
     end
   end
 
-  desc <<~EOF
-    Write or append a durable artifact under var/cortex/artifacts. On
-    replace, the previous version is snapshotted to artifacts/.history and a
-    version record (job, agent, mode, map, timestamp, size) is accumulated
-    in artifacts/.meta/<name>.json. Conversations are working space;
-    artifacts are durable research objects. Extract reusable results as
-    artifacts.
-  EOF
   input :path, :string, 'Artifact path relative to var/cortex/artifacts (e.g. claims/C42.md); no absolute paths, no ..', nil, required: true
   input :content, :text, 'Full artifact content to write (mode replace) or append (mode append); never echoed back', nil, required: true
   input :mode, :select, 'replace overwrites (with history snapshot); append adds to the end, creating if absent', 'replace', select_options: %w(replace append)
@@ -851,15 +798,6 @@ module Cortex
     "Artifact written: #{name} (#{size} bytes, v#{version})"
   end
 
-  desc <<~EOF
-    Make a targeted, exact text edit to an existing artifact: every
-    occurrence of find (or the single occurrence, unless all=true) is
-    replaced by replace. Fails rather than guessing when find is missing or
-    ambiguous. The previous version is snapshotted to .history and a
-    version record (mode 'edit') is appended to .meta, exactly like
-    cortex_write replace. Do not resend whole artifacts for small fixes;
-    use this tool.
-  EOF
   input :name, :string, 'Artifact path relative to var/cortex/artifacts', nil, required: true
   input :find, :text, 'Exact text to find in the artifact', nil, required: true
   input :replace, :text, 'Replacement text', nil, required: true
@@ -869,13 +807,6 @@ module Cortex
     Cortex.edit_artifact(name, find, replace, all: all, job: self.short_path, agent: agent)
   end
 
-  desc <<~EOF
-    Rename a resource (conversation, brief, or artifact) without changing its
-    path map. Artifacts and briefs take their sidecar metadata and history
-    along, so provenance and prior versions stay attached; artifact .meta
-    gets a version record (mode 'rename'). The target name must not already
-    exist. Use only for deliberate workspace management.
-  EOF
   input :type, :select, "Namespace of the resource to rename", nil, {select_options: %w(conversations briefs artifacts), required: true, jobname: true}
   input :name, :string, 'Current logical name', nil, required: true
   input :new_name, :string, 'New logical name', nil, required: true
@@ -884,13 +815,6 @@ module Cortex
     Cortex.rename_resource(type, name, new_name, job: self.short_path, agent: agent)
   end
 
-  desc <<~EOF
-    Remove a resource (conversation, brief, or artifact) explicitly. For
-    artifacts and briefs the associated .meta metadata and .history
-    snapshots are removed together, so no orphaned provenance is left
-    behind. The namespace is required; there is no implicit delete-anything.
-    This is irreversible; use only for deliberate workspace management.
-  EOF
   input :type, :select, "Namespace of the resource to remove", nil, {select_options: %w(conversations briefs artifacts), required: true, jobname: true}
   input :name, :string, 'Logical name to remove', nil, required: true
   task :cortex_remove => :text do |type,name|
@@ -898,14 +822,6 @@ module Cortex
     "Removed: #{removed.length} item#{removed.length == 1 ? '' : 's'} (#{removed.collect { |p| Log.truncate_string(p, 60) } * ', '})"
   end
 
-  desc <<~EOF
-    Move a resource (conversation, brief, or artifact) between path maps
-    (e.g. :current -> :lib) keeping its logical name, following resource
-    sync semantics: content, .meta metadata, and .history snapshots travel
-    together as one logical object; the source disappears. Artifact .meta
-    gets a version record (mode 'move') with from/to maps. The target must
-    not already exist.
-  EOF
   input :type, :select, "Namespace of the resource to move", nil, {select_options: %w(conversations briefs artifacts), required: true, jobname: true}
   input :name, :string, 'Logical name to move', nil, required: true
   input :to, :select, 'Target path map', nil, {select_options: %w(lib current), required: true}
@@ -921,7 +837,7 @@ module Cortex
   task_alias :continue_chat, Cortex, :cortex_continue
   task_alias :brief_agent, Cortex, :cortex_brief
 
-  export :cortex_continue, :cortex_brief, :continue_chat, :brief_agent,
+  export_exec :cortex_continue, :cortex_brief, :continue_chat, :brief_agent,
          :cortex_list, :cortex_search, :cortex_read, :cortex_write,
          :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move
 end
