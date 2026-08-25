@@ -3,7 +3,7 @@
 This page explains the Cortex workspace: what lives where, and what the three
 kinds of research objects are.
 
-**You should read this if:** you use `continue_chat`, `brief_agent`, or any
+**You should read this if:** you use `cortex_continue`, `cortex_brief`, or any
 `cortex_*` tool, or you want to inspect `var/cortex/` directly.
 
 ---
@@ -22,14 +22,14 @@ The separation is enforced by the code:
 
 - A brief can only be loaded from `briefs/`. Using a regular conversation as
   a brief fails with an explicit error; there is no fallback.
-- `brief_agent` writes only to `briefs/`. `continue_chat` writes only to
+- `cortex_brief` writes only to `briefs/`. `cortex_continue` writes only to
   `conversations/`.
 - Artifacts can only be created with `cortex_write` (or by hand under
   `artifacts/`); they are never chat files.
 
 ## Conversations
 
-A conversation is a plain Scout chat file. Each turn saved by `continue_chat`
+A conversation is a plain Scout chat file. Each turn saved by `cortex_continue`
 appends a `meta:` line carrying the job that produced it, so a conversation is
 self-documenting provenance:
 
@@ -48,7 +48,7 @@ options (`last`, `range`) instead of reading them whole.
 ## Briefs
 
 A brief is a standing instruction set for an agent, e.g. "always compute sums
-with bash, not mental math". A brief is created once with `brief_agent` and
+with bash, not mental math". A brief is created once with `cortex_brief` and
 then referenced whenever that behavior is wanted:
 
 ```
@@ -86,8 +86,8 @@ var/cortex/artifacts/
 
 ## The rule of thumb for growing research
 
-1. Brief your agents once (`brief_agent`) so they have standing instructions.
-2. Work in conversations (`continue_chat`); let them accumulate turns and
+1. Brief your agents once (`cortex_brief`) so they have standing instructions.
+2. Work in conversations (`cortex_continue`); let them accumulate turns and
    `meta: job=` provenance lines.
 3. Extract durable results with `cortex_write`.
 4. Navigate with `cortex_list` and `cortex_search`; retrieve with

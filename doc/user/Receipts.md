@@ -3,15 +3,20 @@
 This page explains the delegation receipt contract and how to follow
 provenance from a conversation back to the job that produced each turn.
 
-**You should read this if:** you call `continue_chat`/`brief_agent` from
+**You should read this if:** you call `cortex_continue`/`cortex_brief` from
 another agent and want to account for the work performed, or you audit
 Cortex conversations.
 
+
+
+> **Aliases:** `cortex_continue`/`cortex_brief` were previously called
+> `continue_chat`/`brief_agent`. The old names still work with identical
+> inputs and receipts.
 ---
 
 ## The receipt contract
 
-`continue_chat` and `brief_agent` return exactly:
+`cortex_continue` and `cortex_brief` return exactly:
 
 ```json
 {
@@ -30,14 +35,14 @@ to it; the job knows all of that.
 
 ## How receipts appear to a calling agent
 
-When `continue_chat` is used as a tool, the caller's conversation records a
+When `cortex_continue` is used as a tool, the caller's conversation records a
 function call and its output carrying the receipt:
 
 ```
-function_call: {"name":"continue_chat","arguments":{...},"id":"call_..."}
-function_call_output: {"name":"continue_chat","content":"The agent's answer...",
+function_call: {"name":"cortex_continue","arguments":{...},"id":"call_..."}
+function_call_output: {"name":"cortex_continue","content":"The agent's answer...",
   "agent_meta":[{"role":"meta","content":"job=Cortex/continue/Default_....chat"}],
-  "step":"Cortex/continue_chat/Default_....json"}
+  "step":"Cortex/cortex_continue/Default_....json"}
 ```
 
 This is what makes an orchestrating conversation auditable: every delegation
@@ -45,7 +50,7 @@ leaves an explicit edge to its execution.
 
 ## Provenance inside conversations
 
-Each turn persisted by `continue_chat` into `conversations/<name>` also
+Each turn persisted by `cortex_continue` into `conversations/<name>` also
 carries the producing job inline:
 
 ```

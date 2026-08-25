@@ -1,12 +1,64 @@
 # Workspace Tools
 
-This page documents the four `cortex_*` tools that agents use to navigate and
-extend the Cortex workspace.
+This page documents the ten `cortex_*` tools agents use to navigate, extend,
+and manage the Cortex workspace.
 
 **You should read this if:** you are writing prompts for agents that work
 inside Cortex, or you are an agent that just got the Cortex tools.
 
 ---
+
+## Intended workflow
+
+1. `cortex_list` — discover workspace structure (metadata only)
+2. `cortex_search` — locate potentially relevant material (snippets only)
+3. `cortex_read` — inspect only the required portions (paginated)
+4. `cortex_write` — create durable artifacts
+5. `cortex_edit` — targeted corrections
+6. `cortex_rename` / `cortex_move` / `cortex_remove` — deliberate
+   management of existing resources
+
+Rules of thumb:
+
+- Conversations are working/reasoning space; briefs are reusable agent
+  preparation; artifacts are durable research objects.
+- Do not assume an artifact exists because a conversation mentions it:
+  verify with `cortex_list` / `cortex_read`.
+- Never rely on an important conclusion living only in a conversation:
+  extract it into an artifact.
+- Large resources are read incrementally (line pagination); listings are
+  paged with `offset`/`limit`.
+
+---
+
+## `cortex_continue`  -  contribute to a conversation
+
+Continues a named research conversation. This is the canonical name of the
+task previously called `cortex_continue` (kept as an alias with identical
+behavior and receipts).
+
+```
+cortex_continue(conversation:, prompt:, agent:)
+```
+
+- `conversation`: name of the conversation (nested names allowed).
+- `prompt`: what the contributing agent should do now.
+- `agent`: agent name, optionally `Agent/brief` to load a brief from the
+  `briefs` namespace (e.g. `Worker/bash-math`).
+
+Returns `{agent_meta: [{role: :meta, content: "job=Cortex/continue/..."}],
+content: <answer>}`; the `job=` receipt is the provenance edge into the
+child execution.
+
+## `cortex_brief`  -  create/update an agent brief
+
+```
+cortex_brief(conversation:, prompt:, agent:)
+```
+
+`conversation` is the brief name (stored in `briefs/`, never mixed with
+regular conversations). Same receipt contract as `cortex_continue`.
+Previous canonical name: `cortex_brief`.
 
 ## `cortex_list`  -  compact inventory
 
@@ -14,110 +66,130 @@ Lists namespaces and their entries with metadata only. Never returns
 contents.
 
 ```
-cortex_list(type: "all", prefix: "")
+cortex_list(type: "all", prefix: "", offset: 0, limit: 50)
 ```
 
-- `type`: `conversations`, `briefs`, `artifacts`, or `all`.
+- `type`: `conversations`, `briefs`, `artifacts`, or `all` (explicit; briefs
+  are never implicitly included in `conversations`).
 - `prefix`: only entries whose name starts with it.
+- `offset` / `limit`: pagination. The section header reports
+  `<shown>/<total> entries` and, when more exist, `(more: offset=N)`.
 
-Output shape:
-
-```
-conversations	1 entry
-  #name	messages	bytes	mtime
-  Summing	14	34578	2026-08-24 23:10
-briefs	1 entry
-  #name	messages	bytes	mtime
-  bash-math	3	391	2026-08-24 23:09
-artifacts	1 entry
-  #name	bytes	mtime
-  summing/answer.md	278	2026-08-24 23:10
-```
-
-Use it to discover what exists; then use `cortex_read` on specific entries.
-
-Note: like every Scout task, results are cached per input combination. If
-the workspace changed since a previous identical call, use a different input
-(e.g. a narrower `prefix`) to force a fresh run.
-
-## `cortex_search`  -  lexical content search
-
-Searches message content of conversations and briefs, and file content of
-artifacts, and returns compact matches with snippets.
+Output shape (path map shown only when a name exists in more than one
+readable map):
 
 ```
-cortex_search(query: "8,976,431", type: nil, limit: 10)
+conversations\t1 entry
+  #name\tmessages\tbytes\tmtime
+  Summing\t14\t34578\t2026-08-24 23:10
+briefs\t1 entry
+  #name\tmessages\tbytes\tmtime
+  bash-math\t3\t391\t2026-08-24 23:09
+artifacts\t1 entry
+  #name\tbytes\tmtime
+  summing/answer.md\t278\t2026-08-24 23:10
 ```
 
-- `query`: substring matched case-insensitively. Multiple whitespace-separated
-  terms require every term (AND).
-- `type`: restrict to `conversations`, `briefs`, `artifacts`, or nil for all.
+## `cortex_search`  -  find material by content
+
+Lexical, case-insensitive, multi-term AND. Single term matches substring;
+several terms must all appear in the same resource. Searches all readable
+path maps (`:lib`, `:current`).
+
+```
+cortex_search(query:, type: "all", limit: 20)
+```
+
+- `type`: `all | conversations | briefs | artifacts` (exact interface, no
+  implicit expansion).
 - `limit`: maximum number of matches.
 
-Output shape:
+Returns compact snippets (`#type\tname\tsnippet`), not full evidence. Read
+the resource for the full context.
+
+## `cortex_read`  -  bounded read
+
+Artifacts and conversations, always bounded.
 
 ```
-#type	name	match
-conversations	Summing	4:assistant: **8,976,431 + 2,895,764**
-conversations	Summing	13:assistant: ## Execution summary - What I tried: computed ...
+cortex_read(type:, name:, last: nil, range: nil, start_line: 1, line_count: 200)
 ```
 
-The `match` column is `message-index:role: snippet` for chats; for artifacts
-it is a line snippet. Results are cached per input combination; change the
-query or `limit` to force a re-run after workspace changes. Use the message index with `cortex_read`'s `range` to
-pull the full context.
+- Artifacts: line-based pagination. Response header reports
+  `# lines A-B of T (next: B+1)` or `(end)`, plus total byte size; a
+  50,000-character safety cap applies on top.
+- Conversations: compact per-message index by default; `last` or `range`
+  (`"a-b"`, capped at 50k chars) fetch full message content.
+- Resolution: readable maps in `[:lib, :current]` order; deterministic
+  `:lib` precedence. When a name exists in both maps, the read states the
+  ambiguity and shows all physical paths instead of hiding it.
 
-Search is lexical (substring), not semantic.
-
-## `cortex_read`  -  bounded retrieval
-
-Reads a conversation, brief, or artifact with explicit bounds.
-
-```
-cortex_read(name: "Summing", type: "conversations", last: 3, range: nil)
-cortex_read(name: "bash-math", type: "briefs", last: nil, range: "0-1")
-cortex_read(name: "summing/answer.md", type: "artifacts", last: nil, range: nil)
-```
-
-- `type`: `conversations`, `briefs`, or `artifacts`.
-- Without `last`/`range`, conversations and briefs return the compact message
-  index (`index`, role, fingerprint) rather than full text.
-- `last: N` returns the trailing N messages in full.
-- `range: "a-b"` returns messages a through b inclusive in full.
-- Artifacts ignore `last`/`range` and always return full content.
-
-Conversations can be very large; prefer the index first, then pull ranges.
-
-## `cortex_write`  -  durable artifact write
-
-Creates or updates an artifact and returns a one-line confirmation.
+## `cortex_write`  -  create/update an artifact
 
 ```
-cortex_write(path: "summing/answer.md", content: "# Result\n...", mode: "replace")
+cortex_write(path:, content:, mode: "replace", agent:)
 ```
 
-- `path`: relative to `artifacts/`; subdirectories allowed; `..` rejected.
-- `mode`: `replace` (default) snapshots the previous version to
-  `.history/<path>/<timestamp>.<seq>` and overwrites; `append` adds to the
-  end, creating the artifact if absent.
-- Automatic provenance: each write appends to `artifacts/.meta/<path>.json` a
-  record of `job`, `agent`, `mode`, `timestamp`, `size`.
+- Creates a missing artifact or updates an existing one.
+- `mode: "replace"` snapshots the previous version to
+  `artifacts/.history/<name>/<timestamp>.<n>`; `mode: "append"` adds to the
+  end, creating if absent.
+- Records provenance in `artifacts/.meta/<name>.json`: job, agent, mode,
+  timestamp, size. No second provenance system — the workflow job is the
+  source of truth.
+- Returns a one-line confirmation (never the whole content).
 
-Response is only a status line, e.g.:
+## `cortex_edit`  -  surgical text replacement
 
 ```
-Artifact written: summing/answer.md (494 bytes, v2)
+cortex_edit(name:, find:, replace:, all: false, agent:)
 ```
 
-The content is never echoed back. Read it back with `cortex_read` if needed.
+Exact textual replacement. Fails with a clear error when:
 
-## Working discipline
+- `find` does not occur in the artifact, or
+- `find` occurs more than once, unless `all: true` is passed.
 
-The intended loop for an agent inside Cortex:
+Previous content is snapshotted to `.history` and the `.meta` version list
+grows (mode `edit`). No resending the whole artifact to change a sentence.
 
-1. `cortex_list` to see the workspace.
-2. `cortex_search` to find prior work on the topic.
-3. `cortex_read` (bounded) to pull just what is needed.
-4. Contribute via `continue_chat` or `brief_agent`.
-5. `cortex_write` any durable result; keep conversations as working space
-   only.
+## `cortex_rename`  -  change logical name (same path map)
+
+```
+cortex_rename(type:, name:, to:, agent:)
+```
+
+Moves content plus `.meta` plus `.history` together as one logical object;
+the source disappears. Fails if the target exists or the source is missing.
+Nested names supported in all namespaces.
+
+## `cortex_remove`  -  delete a resource
+
+```
+cortex_remove(type:, name:)
+```
+
+Removes the resource and its associated metadata/history consistently; no
+orphaned `.meta`/`.history` entries remain. The namespace is always
+explicit; there is no "delete anything with this name".
+
+## `cortex_move`  -  transfer between path maps
+
+```
+cortex_move(type:, name:, to: "lib"|"current", agent:)
+```
+
+Transfers the canonical resource (content + `.meta` + `.history`) between
+path maps without changing its logical name, semantics analogous to
+`scout resource sync`. In a checkout where `:lib` and `:current` resolve to
+the same physical directory the move is a reported no-op. Rename and move
+stay conceptually distinct: rename changes the logical name, move changes
+the path map.
+
+---
+
+## Caching note
+
+Like every Scout task, results are cached per input combination. If the
+workspace changed since a previous identical call, use a different input
+(e.g. a different `offset`/`limit`) or clear the job.

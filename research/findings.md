@@ -1,117 +1,70 @@
-# Findings
+# Findings — workspace management pass
 
-Consolidated findings from the Cortex workspace milestone (2026-08-24):
-what was built, what was verified, what was decided, and what remains
-deferred. Supporting notes live alongside: `design-decisions.md` (rationale),
-`notes-refactor.md` (step 2 evidence), `notes-tools.md` (step 3 evidence),
-`notes-validation.md` (step 5 evidence), `example-run.md` (recorded run),
-`critique.md` (independent verification).
+## What changed in this pass
 
-## Environment facts established
+1. **One storage abstraction under all tools.**
+   `CORTEX_WRITE_MAP = :lib`, `CORTEX_READ_MAPS = [:lib, :current]`;
+   `namespace_dir` / `resource_path` / `resource_paths` /
+   `resolve_resource` / `namespace_entries` / `ambiguous_names` are now the
+   only place path-map logic lives. No task resolves paths on its own.
+   `resource_paths` deduplicates maps resolving to the same directory, so
+   in this checkout (where `:lib` and `:current` coincide) legacy data is
+   listed, searched, and read exactly once with no migration.
 
-- `Scout.var.cortex` resolves repo-local (`<repo>/var/cortex`), so all
-  workspace data is inside the repository checkout.
-- scout-ai and scout-gear are read-only in this sandbox; the `agent_meta`
-  Hash-result patch in `lib/scout/llm/tools/call.rb` was already present, so
-  no scout-ai change was needed for this milestone.
-- LLM inference is reachable; agents run for real through
-  `Cortex.job(:task, ...).run`.
-- The agent name `Worker` resolves through the read-only global agent tree
-  (`~/chats/Agent/Worker`), not from any file in this repo.
-- The repository checkout is not a git repository (no `.git`), so milestone
-  commits could not be made; this note set is the record.
-- Sub-agent execution tools (`bash`, `python`, `ruby` tasks) spawn a nested
-  bubblewrap that this host cannot start (`bwrap: No permissions to create
-  new namespace`); agents could not machine-verify arithmetic during the
-  validation run and reported manual cross-checks instead.
+2. **Four management tools added.**
+   - `cortex_edit` — exact `find`→`replace`, strict failure on missing or
+     ambiguous target unless `all: true`; previous version snapshotted.
+   - `cortex_rename` — logical rename within a map; content + `.meta` +
+     `.history` move together; `rename` version record with `renamed_from`.
+   - `cortex_remove` — explicit namespace; deletes sidecars and prunes
+     empty parents; no stale metadata.
+   - `cortex_move` — path-map transfer of the whole logical object with a
+     `move` version record; reported no-op when both maps resolve to the
+     same physical directory.
 
-## What was implemented
+3. **Naming canonicalized.** `cortex_continue` / `cortex_brief` are the
+   canonical tasks (implemented directly, canonical descriptions);
+   `continue_chat` / `brief_agent` are `task_alias`-style delegating
+   wrappers returning byte-identical `{agent_meta, content}` receipts.
+   The internal `continue` chat_task was not renamed.
 
-1. Namespace separation under `var/cortex/`: `conversations/`, `briefs/`
-   (with `.meta/` sidecars), `artifacts/` (with `.meta/` and `.history/`).
-2. Brief ergonomics: `Agent/brief` reference syntax retained, but brief
-   names are decoupled from agent names; `brief_agent` gained a required
-   `agent` input recorded in the sidecar; `resolve_brief` loads only from
-   `briefs/` and produces actionable errors (missing brief, conversation of
-   the same name, legacy `var/cortex/<Agent>/<brief>` location, available
-   briefs).
-3. Workspace tools as exported tasks: `cortex_list` (scoped, metadata-only),
-   `cortex_search` (lexical, snippets, AND semantics), `cortex_read`
-   (bounded: index default, `last`, `range`, artifact full read, 50k cap),
-   `cortex_write` (provenance sidecar, `.history` snapshots, one-line
-   confirmation).
-4. Receipts preserved: `{agent_meta: [{role: :meta, content:
-   Chat.serialize_meta({job: continue.short_path})}], content: answer}`;
-   automatic `log_agent` unchanged inside `chat_task :continue`.
-5. Documentation: `doc/StartHere.md`, `doc/user/{Workspace, Conversations,
-   WorkspaceTools, Receipts}.md`, `doc/developer/{Architecture, Workspace,
-   ToolExposure, Receipts}.md`, plus this research folder.
+4. **Listing/search/read made path-map aware and bounded.**
+   - `cortex_list`: `type` is exactly `all | conversations | briefs |
+     artifacts` (briefs no longer implicitly folded into conversations),
+     `offset`/`limit` pagination with `shown/total` and `(more: offset=N)`
+     markers; path map is appended to names only when the name exists in
+     more than one map.
+   - `cortex_search`: searches every readable map; same four-type filter;
+     snippet output; `limit`.
+   - `cortex_read`: artifacts use line pagination
+     (`start_line`/`line_count`, header `# lines A-B of T (next: B+1 |
+     end)`, 50k char cap retained); conversations keep index +
+     `last`/`range`; cross-map ambiguity is reported, never hidden.
 
-## What was verified (see per-step notes for transcripts)
+5. **Nested names are first-class everywhere** (recursive enumeration in
+   all three namespaces, consistent in list/search/read/write/edit/
+   rename/remove/move).
 
-- Brief `bash-math` created for agent `Worker` under a non-prefixed name;
-  sidecar records agent/job/timestamp.
-- `agent: "Worker/bash-math"` resolves from `briefs/`; missing brief
-  (`Worker/nope`) errors with `No brief nope for agent Worker. Available
-  briefs: bash-math`.
-- Conversation `Summing` created and continued by two different agents
-  (unbriefed `Worker`, then `Worker/bash-math`), each turn carrying
-  `meta: job=Cortex/continue/...`.
-- `cortex_list` returns the three namespaces with metadata only (message
-  counts, bytes, mtimes) and excludes `.meta`/`.history`.
-- `cortex_search "8,976,431"` and `"bash"` return compact matches with
-  message-index snippets from conversation content.
-- `cortex_read` works in index mode, `range` mode, briefs mode, and artifact
-  mode.
-- `cortex_write` produced v1 then v2 of `summing/answer.md`; v1 content
-  survives verbatim in `.history/summing/answer.md/20260824231352.1`; the
-  meta sidecar accumulates both version records with job/agent/mode/
-  timestamp/size; the tool returned one line each time.
-- Tool schema check: `LLM.workflow_tools(Cortex)` shows all six tools with
-  the expected `required` sets, including the newly required `agent` on
-  `brief_agent`.
+## Verification
 
-## Decisions (rationale in design-decisions.md)
+- Invariant suite: `ruby test/test_cortex_workspace.rb` → 28 passed, 0
+  failed, 0 errored (archived in `test-results.md`, including traversal,
+  ambiguity, pagination-boundary, and missing-target cases).
+- End-to-end LLM run (`tmp/e2e_management_out.txt`, summarized in
+  `example-run.md`): brief → unbriefed continue → briefed continue with
+  `Agent/brief` syntax → `cortex_write` → paginated `cortex_read` →
+  `cortex_edit` → `cortex_rename` → `cortex_search` finding the renamed
+  artifact; plus a direct `cortex_move`/`cortex_remove`/alias check. Every
+  `cortex_continue` turn returned the `job=Cortex/continue/...` receipt.
+- Note: in the sandboxed run the worker could not execute code through
+  bwrap (kernel restriction); the arithmetic was verified manually by the
+  worker and flagged as such. This is an environment issue, not a Cortex
+  issue.
 
-- Clean break for legacy data: old `var/cortex/Summing` and
-  `var/cortex/Worker/math` are disposable; detection of the legacy brief
-  location is an error message, not a migration.
-- Briefs record the target agent in a sidecar rather than in the file name;
-  file names are free-form and stable.
-- Conversation content is normalized (empty messages dropped) everywhere so
-  indices are stable across saves despite the `Chat.load` leading-empty
-  quirk.
-- Artifact versioning is append-only at the metadata layer and snapshot-
-  based at the content layer; no in-place rewrites.
-- Task names are `cortex_`-prefixed to avoid cross-workflow tool-name
-  collisions; `continue_chat`/`brief_agent` keep historical names.
-- Docs follow the scout-ai layout: `doc/StartHere.md`, `doc/user`,
-  `doc/developer`, research at repo root.
+## Decisions worth revisiting
 
-## Known limitations / deferred
-
-- Search is lexical substring only; semantic/embedding search deferred.
-- No entity layer (genes, TFs, composites, claims)  -  deliberately deferred
-  until agents produce enough AGS material to know which entity operations
-  pay off.
-- No automatic relevance injection of prior claims into prompts; agents pull
-  context themselves via search/read.
-- ChatAnalyst integration (a single `analyze_conversation` wrapper) was
-  optional/stretch and was not added this pass; receipts and `meta:` lines
-  already give analysts explicit edges to follow.
-- The `cortex_read` "sections" concept from the design conversation (read a
-  named section of an artifact) was not implemented; range reads on chats
-  and full reads on artifacts cover current needs.
-- `cortex_list` for conversations shows message counts, not token counts;
-  token accounting lives in chat meta lines.
-- Legacy error-path behavior for briefs that exist but are empty files is
-  treated as "no brief" (load_brief returns nil), which is the correct
-  affordance for agents.
-
-## Sandbox caveats for reproducing the run
-
-- Run from the repository root so `Scout.var.cortex` stays repo-local.
-- The recorded run used the public task interface
-  (`Cortex.job(...).run`), not helper shortcuts.
-- Original transcripts: `tmp/e2e_run.rb` (driver) and `tmp/e2e_out.txt`
-  (raw output); trimmed copy in `example-run.md`.
+- `cortex_move` is a no-op when the maps coincide. Once Cortex is installed
+  (not run from a checkout), `:lib` and `:current` will differ and moves
+  will be real transfers; the test suite covers the no-op path only.
+- Listing pagination is per-namespace-section (`offset` applies inside each
+  section for `type: all`); a global cursor was considered and deferred.

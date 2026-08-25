@@ -3,14 +3,14 @@
 This page documents the delegation receipt contract, its implementation, and
 the provenance chains across conversations, briefs, artifacts, and jobs.
 
-**You should read this if:** you are changing `continue_chat`, `brief_agent`,
+**You should read this if:** you are changing `cortex_continue`, `cortex_brief`,
 or anything that touches `agent_meta`.
 
 ---
 
 ## The contract
 
-`continue_chat` and `brief_agent` return exactly this JSON:
+`cortex_continue` and `cortex_brief` return exactly this JSON:
 
 ```ruby
 {agent_meta: [{role: :meta, content: Chat.serialize_meta({job: continue.short_path})}], content: res.answer}
@@ -29,10 +29,10 @@ away.
 
 ## Why `job` points at `continue`, not the wrapper
 
-`continue_chat` and `brief_agent` are thin projections over
+`cortex_continue` and `cortex_brief` are thin projections over
 `dep :continue`. The inference, and therefore the provenance, happens inside
 `continue` (`Cortex/continue/<id>.chat`). The wrapper's own job
-(`Cortex/continue_chat/<id>.json`) exists too, and its step path is surfaced
+(`Cortex/cortex_continue/<id>.json`) exists too, and its step path is surfaced
 by the tool-call machinery as `step:` in the function output  -  but the
 receipt's `job=` always names the execution, not the projection.
 

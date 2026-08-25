@@ -4,17 +4,22 @@ This page explains how to create agent briefs and how to run conversations in
 Cortex.
 
 **You should read this if:** you delegate work to agents through Cortex
-(`brief_agent`, `continue_chat`).
+(`cortex_brief`, `cortex_continue`).
 
+
+
+> **Aliases:** `cortex_continue`/`cortex_brief` were previously called
+> `continue_chat`/`brief_agent`. The old names still work with identical
+> inputs and receipts.
 ---
 
 ## Briefing an agent
 
-`brief_agent` creates (or extends) a named brief and runs the agent on it
+`cortex_brief` creates (or extends) a named brief and runs the agent on it
 once so the brief is an actual accepted conversation, not just a wish:
 
 ```
-brief_agent(
+cortex_brief(
   conversation: "bash-math",
   prompt: "You are a math worker. When asked to compute any sum, always use bash arithmetic rather than mental math.",
   agent: "Worker"
@@ -34,11 +39,11 @@ conversations namespace.
 
 ## Continuing a conversation
 
-`continue_chat` appends a prompt to a named conversation, runs an agent on
+`cortex_continue` appends a prompt to a named conversation, runs an agent on
 it, and persists the grown conversation:
 
 ```
-continue_chat(
+cortex_continue(
   conversation: "Summing",
   prompt: "Propose an interesting arithmetic sum. Do NOT solve it.",
   agent: "Worker"
@@ -68,8 +73,8 @@ A conversation is not owned by one agent; each turn states which agent
 contributed:
 
 ```
-continue_chat(conversation: "Summing", prompt: "Propose a sum, do not solve it", agent: "Worker")
-continue_chat(conversation: "Summing", prompt: "Solve the sum", agent: "Worker/bash-math")
+cortex_continue(conversation: "Summing", prompt: "Propose a sum, do not solve it", agent: "Worker")
+cortex_continue(conversation: "Summing", prompt: "Solve the sum", agent: "Worker/bash-math")
 ```
 
 The conversation accumulates both turns, each with its own `meta: job=` line.
@@ -77,7 +82,7 @@ The conversation accumulates both turns, each with its own `meta: job=` line.
 ## What NOT to expect
 
 - Briefs are not conversations. You cannot continue a brief with
-  `continue_chat` (it would look in `conversations/` and not find it), and
+  `cortex_continue` (it would look in `conversations/` and not find it), and
   you cannot brief an agent with a regular conversation (explicit error).
 - A conversation is not provenance on its own. The `meta: job=` lines inside
   it are the links to the full child executions; see
@@ -87,6 +92,6 @@ The conversation accumulates both turns, each with its own `meta: job=` line.
 
 | Call | Writes to | Sidecar |
 |------|-----------|---------|
-| `brief_agent` | `var/cortex/briefs/<name>` | `briefs/.meta/<name>.json` (agent, job, timestamp) |
-| `continue_chat` | `var/cortex/conversations/<name>` | none (provenance is the `meta:` lines inside) |
+| `cortex_brief` | `var/cortex/briefs/<name>` | `briefs/.meta/<name>.json` (agent, job, timestamp) |
+| `cortex_continue` | `var/cortex/conversations/<name>` | none (provenance is the `meta:` lines inside) |
 | `cortex_write` | `var/cortex/artifacts/<path>` | `artifacts/.meta/<path>.json` + `.history/` snapshots |

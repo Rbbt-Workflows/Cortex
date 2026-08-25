@@ -1,7 +1,11 @@
 Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.txt *.conf *.slim *.haml" {
  workflow.rb
  chats=chats filter="*"{
+  EvolveCortex.md
+  develop
+  fit_agent
   test
+  test.analysis
  }
  lib=lib {
  }

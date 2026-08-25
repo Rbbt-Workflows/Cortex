@@ -1,124 +1,97 @@
 # Workspace Implementation
 
-This page documents the storage layer: namespaces, listings, search, bounded
-reads, and artifact writes with provenance and versioning.
+This page documents the storage layer: the path-map abstraction, namespaces,
+listings, search, bounded reads, artifact provenance/versioning, and the
+management operations.
 
 **You should read this if:** you are changing how Cortex stores, finds, or
 returns research objects.
 
 ---
 
-## Namespaces and path resolution
+## One storage abstraction
 
-`Cortex.CORTEX` is `Scout.var.cortex` (repo-local in this checkout). All
-paths derive from it:
+Every tool resolves resources through the same module-level functions; no
+task contains its own path logic.
 
-| Method | Produces |
-|--------|----------|
-| `conversation_path(name)` | `var/cortex/conversations/<name>` |
-| `brief_path(name)` | `var/cortex/briefs/<name>` |
-| `brief_meta_path(name)` | `var/cortex/briefs/.meta/<name>.json` |
-| `artifact_path(name)` | `var/cortex/artifacts/<name>` |
-| `artifact_meta_path(name)` | `var/cortex/artifacts/.meta/<name>.json` |
-| `artifact_history_path(name)` | `var/cortex/artifacts/.history/<name>/` |
-| `namespace_names(ns)` | top-level entry names, dot-files excluded |
-| `artifact_names` | recursive relative artifact paths, dot-dirs excluded |
+| Method | Purpose |
+|--------|---------|
+| `write_map` / `read_maps` | `CORTEX_WRITE_MAP` (`:lib`) and `CORTEX_READ_MAPS` (`[:lib, :current]`) |
+| `namespace_dir(ns, map = write_map)` | physical directory for a namespace in a path map |
+| `sanitize_resource_name!(name)` | rejects absolute paths, `..`, `~`, and empty names |
+| `resource_path(ns, name, map)` | physical path of a logical name in a map |
+| `resource_paths(ns, name, maps = read_maps)` | candidate `[path, map]` pairs; maps resolving to the same directory are deduplicated |
+| `resolve_resource(ns, name, maps)` | first existing candidate plus the full candidate list |
+| `namespace_names(ns, map)` / `namespace_entries(ns, maps)` | discovery (recursive, dot-entries hidden) |
+| `ambiguous_names(ns, maps)` | names existing in more than one map |
 
-`validate_type!` normalizes `type` to one of `conversations`, `briefs`,
-`artifacts`, `all`; anything else raises.
+Namespaces: `conversations`, `briefs`, `artifacts` — all three support
+nested names (`probe/test/a.md`), all enumerated recursively, dot-dirs
+(`.meta`, `.history`) excluded everywhere.
 
-## Brief resolution (the ergonomic core)
+Convenience accessors (`conversation_path`, `brief_path`, `artifact_path`,
+... ) are thin wrappers over the same functions.
 
-`resolve_brief(agent, brief)`:
+## Resolution and ambiguity
 
-1. `load_brief(brief)`  -  only `briefs/<brief>`; a non-file or empty chat is
-   nil.
-2. Missing brief -> build an actionable error: name the brief and agent; if a
-   conversation with that name exists, say conversations are not briefs; if
-   the legacy `var/cortex/<agent>/<brief>` exists, point at it and suggest
-   `brief_agent`; list existing briefs (or note none exist yet).
-3. Never falls back to the conversations namespace.
+`resource_paths` deduplicates maps that resolve to the same physical
+directory (in this checkout `:lib` and `:current` coincide, so legacy data
+is seen exactly once). Reads resolve in `read_maps` order (`:lib` first);
+when a name exists in two *different* physical locations, `cortex_read`
+prints both paths instead of silently picking one, and `cortex_list` /
+`cortex_search` tag such names with `:map` suffixes.
 
-The `Agent/brief` syntax lives in the `agent` input of `continue_chat` and
-`brief_agent`'s `agent` input. The brief file name and the agent name are
-fully decoupled; the association is recorded in the brief sidecar
-(`agent`, `job`, `timestamp`) written by `save_brief`.
+## Listing and search
 
-## Message normalization
-
-`chat_messages(chat)` drops messages with empty content. This exists because
-`Chat.load` of a file whose first message is empty yields a leading empty
-separator message; every count, index, search hit, and range slice uses this
-normalization so indices are stable across saves. Message indices shown by
-listing/search/index are indices into this filtered array.
-
-## Listing
-
-`namespace_listing(type, prefix)` gathers rows; `listing_text(type, prefix)`
-renders. Conversations/briefs: name, message count, bytes, mtime. Artifacts:
-name, bytes, mtime. `type: 'all'` renders the three sections with entry
-counts. Dot-directories (`.meta`, `.history`) are excluded at both the
-namespace and artifact glob level. There is also `listing_tsv` returning a
-TSV object for programmatic use.
-
-## Search
-
-Lexical, case-insensitive, over chat message content and artifact file
-content.
-
-- `search_terms` splits on whitespace; `matches_query?` implements
-  substring for a single term and AND for multiple terms.
-- `search_conversations(query, type, limit)` walks `conversations` (and
-  `briefs` unless restricted), scoring each non-empty message; a hit line is
-  `index:role: snippet` (first 100 chars, whitespace-collapsed).
-- `search_artifacts(query, limit)` walks artifact contents, returns
-  `snippet_around` (a ~200-char window around the first term hit).
-- The `cortex_search` task merges the two result sets under the shared
-  `#type name match` header and honors `limit` across both.
-
-Search is intentionally substring, not semantic; embeddings are deferred.
+- `cortex_list`: metadata only, `offset`/`limit` pagination
+  (`DEFAULT_LIST_LIMIT = 50`), sections report `<shown>/<total>` and a
+  `(more: offset=N)` marker. `type` is `all | conversations | briefs |
+  artifacts` — no implicit expansion.
+- `cortex_search`: case-insensitive, multi-term AND, one snippet
+  (~200 chars) per resource, `limit` (default 20), searches every readable
+  map. For conversations the brief namespace is *not* implicitly included.
 
 ## Bounded reads
 
-`cortex_read` semantics:
+- Artifacts: line pagination `start_line` / `line_count`
+  (`DEFAULT_READ_LINES = 200`, `READ_CAP = 50_000` chars). Header
+  `# lines A-B of T (next: B+1 | end)`.
+- Conversations: compact index by default; `last` / `range` for full
+  messages (50k cap).
 
-- Conversations/briefs without `last`/`range`: `conversation_index`  - 
-  `index, role, fingerprint` per message (fingerprint falls back to
-  `Log.truncate_string` of content).
-- With `last: N` or `range: "a-b"`: `conversation_slice` renders
-  `role:\ncontent` for the selected messages. `parse_range` validates
-  `a <= b >= 0`; out-of-range clamps (empty string, never nil slices).
-- Artifacts: full content.
-- Everything passes through `cap_string` (`READ_CAP` = 50 000 chars) which
-  truncates with a marker.
+## Artifact provenance and versioning
 
-## Artifact writes
+- Write (`replace`/`append`) and edit snapshot prior content to
+  `artifacts/.history/<name>/<timestamp>.<n>` and append to
+  `artifacts/.meta/<name>.json` a version record `{job, agent, mode,
+  timestamp, size}` (mode is one of `replace`, `append`, `edit`, `rename`,
+  `move`).
+- `cortex_rename` moves content + `.meta` + `.history` together within the
+  same map and appends a `rename` version record carrying `renamed_from`.
+- `cortex_move` transfers the whole logical object between path maps and
+  appends a `move` record with from/to maps; when both maps resolve to the
+  same directory it is a reported no-op.
+- `cortex_remove` deletes content plus both sidecars and prunes empty
+  parent directories; no stale metadata survives.
+- Producing jobs come from `self.short_path` of the calling task — the
+  workflow job remains the single provenance source.
 
-`write_artifact(path, content, mode, job:, agent:)`:
+## Brief resolution (the ergonomic core)
 
-1. `sanitize_artifact_path` rejects empty paths, leading `/` or `~`, any
-   `..` segment, and newlines/tabs  -  the write stays under `artifacts/`.
-2. On `replace` of an existing artifact: snapshot the current content to
-   `.history/<name>/<YYYYMMDDHHMMSS>.<seq>` where `<name>` keeps its
-   subdirectory structure, so each artifact has its own version sequence.
-3. Write the new content (`append` joins with a newline first).
-4. Update `artifacts/.meta/<name>.json`: append to `versions` the record
-   `{job, agent, mode, timestamp, size}`. The `job` recorded is the
-   `cortex_write` job's `short_path` (passed by the task body as
-   `job: self.short_path`).
-5. Return `[name, bytes, version]`  -  the task body renders the single
-   confirmation line. Content is never echoed.
+`Agent/brief` (`Worker/bash-math`) means agent `Worker` plus brief
+`bash-math` from `briefs/`. Briefs are never looked up in `conversations/`
+and regular conversations are never used as briefs; both mistakes raise
+actionable errors. A `.meta` sidecar in `briefs/.meta/` records the target
+agent and producing job. No prefix coupling: the brief name does not need
+to contain the agent name, and the legacy `var/cortex/<Agent>/<brief>`
+location is detected and reported.
 
-The brief sidecar (`briefs/.meta/<name>.json`) is deliberately simpler: one
-current record (agent, producing job, timestamp), not a version list, since
-briefs are grown, not rewritten.
+## Invariants (tested)
 
-## Invariants worth preserving
-
-- Only `chat_task :continue` runs inference; projections never build agents.
-- `brief_agent` writes only `briefs/`; `continue_chat` writes only
-  `conversations/`; `cortex_write` writes only `artifacts/`.
-- Listing/search never return file contents whole; reads are bounded by
-  `READ_CAP`; writes confirm in one line.
-- Dot-directories are invisible to every listing/search/read path.
-- The export list stays static (tool surface stability for cached prefixes).
+`test/test_cortex_workspace.rb` covers: write→read; write→search;
+write→edit→read; write→rename→read; write→remove; move semantics;
+history/metadata preservation through edit/rename/move; no stale
+metadata after remove; nested paths; cross-map ambiguity; pagination
+boundaries; beyond-end reads; search limits; missing targets; path
+traversal rejection; brief/conversation isolation; metadata-only listings.
+See `research/test-results.md` for the archived run.

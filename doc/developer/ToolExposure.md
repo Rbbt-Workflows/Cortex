@@ -25,7 +25,7 @@ parses tool tokens as `[workflow_name, task_name, *inputs]`:
 So the export line in `workflow.rb` is the tool registry:
 
 ```ruby
-export :continue_chat, :brief_agent, :cortex_list, :cortex_search, :cortex_read, :cortex_write
+export :cortex_continue, :cortex_brief, :cortex_list, :cortex_search, :cortex_read, :cortex_write
 ```
 
 Because every Cortex agent gets `tool 'Cortex'`, every agent working through
@@ -51,8 +51,8 @@ drift from the implementation.
 Verified current tool surface (`LLM.workflow_tools(Cortex)`):
 
 ```
-continue_chat: required=[:conversation, :prompt]
-brief_agent:   required=[:conversation, :prompt, :agent]
+cortex_continue: required=[:conversation, :prompt]
+cortex_brief:   required=[:conversation, :prompt, :agent]
 cortex_list:   required=[]
 cortex_search: required=[:query]
 cortex_read:   required=[:name, :type]
@@ -89,7 +89,7 @@ So:
 
 Tasks are prefixed `cortex_` so that a model that has loaded several
 workflows' tools sees unambiguous names (`cortex_read` vs a hypothetical
-`Workflow/read`). `continue_chat` and `brief_agent` keep their historical
+`Workflow/read`). `cortex_continue` and `cortex_brief` keep their historical
 names because they predate the convention and are referenced across
 conversations and docs.
 

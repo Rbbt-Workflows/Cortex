@@ -23,7 +23,7 @@ Cortex (this repo)
             \- LLM::Agent      (model calls, tool execution)
 ```
 
-Cortex never calls the model itself. `continue_chat` and `brief_agent` are
+Cortex never calls the model itself. `cortex_continue` and `cortex_brief` are
 thin projections over the shared `continue` dependency: they load the
 workspace chat, run `continue` on it, persist the grown chat, and return a
 receipt. `log_agent` therefore always runs, unchanged.
@@ -56,8 +56,8 @@ Constants: `CORTEX` (= `Scout.var.cortex`), `VALID_TYPES`,
 | Task | Type | Purpose |
 |------|------|---------|
 | `continue` | `chat_task :continue` (`:chat`) | The only place an agent is built and run; brief resolution happens here |
-| `continue_chat` | `:json` | Conversation turn: dep on `continue`, persist to `conversations/`, return receipt |
-| `brief_agent` | `:json` | Brief creation: dep on `continue`, persist to `briefs/` + `.meta` sidecar, return receipt |
+| `cortex_continue` | `:json` | Conversation turn: dep on `continue`, persist to `conversations/`, return receipt |
+| `cortex_brief` | `:json` | Brief creation: dep on `continue`, persist to `briefs/` + `.meta` sidecar, return receipt |
 | `cortex_list` | `:text` | Compact namespace inventory |
 | `cortex_search` | `:text` | Lexical content search with snippets |
 | `cortex_read` | `:text` | Bounded reads (index / last / range / artifact) |
@@ -66,7 +66,7 @@ Constants: `CORTEX` (= `Scout.var.cortex`), `VALID_TYPES`,
 All six non-`continue` tasks are `export`ed, which is what makes them agent
 tools (see [ToolExposure.md](ToolExposure.md)).
 
-## Anatomy of one `continue_chat` turn
+## Anatomy of one `cortex_continue` turn
 
 1. The caller (an agent using the Cortex tool, or a Ruby driver) invokes the
    task with `conversation`, `prompt`, `agent`.
@@ -84,11 +84,11 @@ tools (see [ToolExposure.md](ToolExposure.md)).
 4. `chat_task` runs the agent (LLM + nested tools), calls `log_agent`
    (writes `log/agent.chat` under the job), and projects the result with
    `Chat.project`.
-5. `continue_chat` loads that result, `save_conversation` appends the prompt
+5. `cortex_continue` loads that result, `save_conversation` appends the prompt
    and the new messages to `conversations/<name>`, and the task returns
    `{agent_meta: [...job...], content: answer}`.
 
-`brief_agent` is the same flow with `namespace: :briefs`, `save_brief`, and a
+`cortex_brief` is the same flow with `namespace: :briefs`, `save_brief`, and a
 required `agent` input recorded in the brief sidecar.
 
 ## Error philosophy
