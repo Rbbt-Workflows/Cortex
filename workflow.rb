@@ -843,3 +843,5 @@ module Cortex
          :cortex_list, :cortex_search, :cortex_read, :cortex_write,
          :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move
 end
+
+require 'Cortex/tasks/entity'
