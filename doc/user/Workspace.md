@@ -8,7 +8,7 @@ kinds of research objects are.
 
 ---
 
-## Three namespaces
+## Four namespaces
 
 Cortex keeps everything under `var/cortex/`:
 
@@ -17,6 +17,7 @@ Cortex keeps everything under `var/cortex/`:
 | **Conversations** | `var/cortex/conversations/` | Working space: named chats that agents extend turn by turn |
 | **Briefs** | `var/cortex/briefs/` | Standing instructions that make an agent work a certain way |
 | **Artifacts** | `var/cortex/artifacts/` | Durable research objects: results extracted from conversations |
+| **Entities** | `var/cortex/entities/` | Executable entity properties: versioned code that computes evidence |
 
 The separation is enforced by the code:
 
@@ -26,6 +27,9 @@ The separation is enforced by the code:
   `conversations/`.
 - Artifacts can only be created with `cortex_write` (or by hand under
   `artifacts/`); they are never chat files.
+- Entity properties are defined and updated only through the property tools
+  (`cortex_property_define`, `_update`, `_remove`); the generic write/edit
+  tools do not apply to executable definitions.
 
 ## Conversations
 
@@ -83,6 +87,25 @@ var/cortex/artifacts/
   .meta/summing/answer.md.json <- who wrote each version (job, agent, timestamp)
   .history/summing/answer.md/  <- prior versions, never discarded
 ```
+
+## Entities
+
+An entity property is *executable* evidence: versioned Ruby code plus a
+metadata interface, addressed `entities/<Type>/<property>` (e.g.
+`Gene/activity_in_treatment`). Executing it for an entity produces a real,
+cacheable Scout Step; the receipt names that step as the provenance of the
+number.
+
+```
+var/cortex/entities/
+  Gene/activity_in_treatment.rb        <- trusted Ruby body
+  .meta/Gene/activity_in_treatment.json <- schema v1: arguments, deps, digest
+  .history/Gene/activity_in_treatment/  <- prior versions, never discarded
+```
+
+Discovery is `cortex_property_list` (definitions are not in `cortex_search`).
+The discipline: never transcribe a number by hand when a property can return
+it — cite the property job instead.
 
 ## The rule of thumb for growing research
 

@@ -1,5 +1,10 @@
 require 'scout-ai'
 
+# lib/ files under this repo are not on $LOAD_PATH by default; the engine
+# (and the old demonstrator task file it replaces) live in lib/Cortex/.
+lib = File.join(File.dirname(File.expand_path(__FILE__)), 'lib')
+$LOAD_PATH.unshift lib unless $LOAD_PATH.include?(lib)
+
 module Cortex
   extend Workflow
   self.include_workflow AgentWorkflow
@@ -84,6 +89,13 @@ module Cortex
     case namespace.to_sym
     when :artifacts then [File.join(base, '.meta', "#{name}.json"), File.join(base, '.history', name)]
     when :briefs then [File.join(base, '.meta', "#{name}.json")]
+    # Entity definitions: <Type>/<property>.rb + per-property .meta/.history.
+    # `name` is the compound address "Type/property".
+    when :entities
+      type, property = name.split(File::SEPARATOR, 2)
+      raise ScoutException, "Invalid entities resource #{name.inspect}: expected <Type>/<property>" if property.nil? || property.empty?
+      [File.join(base, '.meta', type, "#{property}.json"),
+       File.join(base, '.history', type, property)]
     when :conversations then []
     else raise ScoutException, "Unknown Cortex namespace #{namespace}"
     end
@@ -239,7 +251,11 @@ module Cortex
   # Workspace metadata, listing, pagination
   # ------------------------------------------------------------------
 
-  VALID_TYPES = %w(conversations briefs artifacts).freeze
+  # 'entities' is an engine-managed namespace (lib/Cortex/entities.rb): the
+  # storage helpers below know how to address it, but no workflow task
+  # exposes it yet -- entity lifecycle is driven by Cortex.define_property /
+  # update_property / remove_property.
+  VALID_TYPES = %w(conversations briefs artifacts entities).freeze
 
   def self.validate_type!(type)
     type = 'all' if type.nil?
@@ -261,6 +277,7 @@ module Cortex
     case type.to_s
     when 'conversations', 'briefs' then ['#name', 'messages', 'bytes', 'mtime']
     when 'artifacts' then ['#name', 'bytes', 'mtime']
+    when 'entities' then ['#name', 'version', 'digest', 'type', 'mtime']
     end
   end
 
@@ -286,6 +303,28 @@ module Cortex
           next nil unless File.file?(path)
           tag = map_tag map
           [name + tag, File.size(path).to_s, File.mtime(path).strftime('%Y-%m-%d %H:%M')]
+        end.compact
+    when 'entities'
+      # Group by entity type; each row is one property definition
+      # (Type/property).  Meta is the source of truth for version/digest.
+      require 'json'
+      namespace_entries(:entities).
+        select { |name, _map, _path| prefix.nil? || name.start_with?(prefix) }.
+        collect do |name, map, path|
+          next nil unless File.file?(path)
+          meta_path = File.join(namespace_dir(:entities, map), '.meta',
+                                *name.split(File::SEPARATOR)[0..-2],
+                                "#{File.basename(name, '.*')}.json")
+          version = digest = type = nil
+          if File.file?(meta_path)
+            meta = JSON.parse(File.read(meta_path)) rescue {}
+            version = meta['version'].to_s
+            digest  = meta['digest'].to_s[0, 8]
+            type    = meta['property_type'].to_s
+          end
+          tag = map_tag map
+          [name + tag, version.to_s, digest.to_s, type.to_s,
+           File.mtime(path).strftime('%Y-%m-%d %H:%M')]
         end.compact
     end
   end
@@ -839,9 +878,22 @@ module Cortex
   task_alias :continue_chat, Cortex, :cortex_continue
   task_alias :brief_agent, Cortex, :cortex_brief
 
+  #export_exec :cortex_continue, :cortex_brief, :continue_chat, :brief_agent,
+  #       :cortex_list, :cortex_search, :cortex_read, :cortex_write,
+  #       :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move,
+  #       :cortex_property_list, :cortex_property_read, :cortex_property_history,
+  #       :cortex_property_validate, :cortex_property_define, :cortex_property_update,
+  #       :cortex_property_remove, :cortex_entity_property
   export_exec :cortex_continue, :cortex_brief, :continue_chat, :brief_agent,
          :cortex_list, :cortex_search, :cortex_read, :cortex_write,
-         :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move
+         :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move,
+         :cortex_property_list, :cortex_property_read, :cortex_property_history,
+         :cortex_property_validate, :cortex_property_define, :cortex_property_update,
+         :cortex_property_remove, :cortex_entity_property
 end
 
+# Entity engine (storage + lifecycle + compiler) followed by the thin task
+# layer over it.  Both live outside workflow.rb so the engine stays pure
+# module functions with no workflow declarations.
+require 'Cortex/entities'
 require 'Cortex/tasks/entity'

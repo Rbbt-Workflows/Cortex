@@ -2,10 +2,11 @@
 
 Cortex organizes the work of Scout-AI agents into a persistent, navigable
 workspace. Instead of losing research progress inside one-off chats, agents
-contribute to named conversations, keep reusable agent briefs, and extract
-durable results as versioned artifacts. Every agent turn produces a
-provenance receipt pointing at the workflow job that produced it, so the
-work can always be traced back to the actual execution.
+contribute to named conversations, keep reusable agent briefs, extract
+durable results as versioned artifacts, and share executable evidence as
+versioned entity properties. Every agent turn produces a provenance receipt
+pointing at the workflow job that produced it, so the work can always be
+traced back to the actual execution.
 
 Cortex is a thin layer over scout-ai's `AgentWorkflow`: the only inference
 primitive is the internal `continue` chat task; everything else is storage,
@@ -17,7 +18,7 @@ it.
 
 ## Workspace layout
 
-Resources live under `var/cortex/`, separated into three namespaces:
+Resources live under `var/cortex/`, separated into four namespaces:
 
 - `conversations/` — working, exploratory research conversations. This is
   where agents reason; conversations are allowed to be messy.
@@ -29,6 +30,16 @@ Resources live under `var/cortex/`, separated into three namespaces:
   dossiers). Every write records provenance (producing job, agent,
   timestamp) in a `.meta/` sidecar and snapshots previous versions to
   `.history/`, so nothing is silently overwritten.
+- `entities/` — **executable** entity properties, addressed
+  `entities/<Type>/<property>` (e.g. `Gene/activity_in_treatment`). A
+  property is trusted Ruby code plus a metadata schema; running it for an
+  entity produces a real, cacheable Scout Step with full provenance. Like
+  artifacts, every definition is versioned (`.meta/` + `.history/`). Unlike
+  artifacts, definitions are managed exclusively by the property tools
+  (`cortex_property_define`/`_update`/`_remove`); the generic
+  `cortex_write`/`_edit`/`_rename`/`_move`/`_remove` do not apply to them.
+  Discovery is `cortex_property_list`, not `cortex_search` (definitions are
+  not indexed for search).
 
 Dot-directories (`.meta`, `.history`) are internal and never listed.
 
@@ -252,3 +263,115 @@ Compatibility alias of cortex_brief
 
 Older name for `cortex_brief`; identical inputs, behavior, and receipts.
 Prefer the canonical name in new code and prompts.
+
+## cortex_property_list
+List entity property definitions with versions and digests
+
+Grouped by entity type; each row gives the property name, active version,
+short digest, arity (`single`/`array`/`both`), result type, argument and
+dependency counts, and active flag. `include_inactive` also shows
+tombstoned (removed) properties with their last version. `prefix` filters
+by property name; `offset`/`limit` paginate. Definitions are executable
+code, so ambiguity across path maps is an error here, not a warning.
+
+## cortex_property_read
+Read an entity property definition (interface + body), never executing it
+
+Prints the interface first: arity, result type, every argument with its
+Scout input type, description, required flag and default, the
+dependencies, and the active version, digest and identity. Then the Ruby
+body, paginated with `start_line`/`lines` exactly like `cortex_read` for
+artifacts. Reading never executes the body; the property task is compiled
+only when executed.
+
+## cortex_property_history
+Show the version history of an entity property
+
+Compact per-version listing combining the `.meta` versions array with the
+`.history/<Type>/<property>/` snapshots: version, action (`define`,
+`update`, `remove`), short digest, producing job, agent, and timestamp.
+Every change to executable code is attributable.
+
+## cortex_property_validate
+Validate a property definition without activating it
+
+Runs the same checks as `cortex_property_define` but activates nothing:
+names and schema, dependency graph (exists + acyclic), compilation in a
+scratch module, and an optional smoke execution against `test_entity` with
+`test_arguments` (the smoke job runs in a throwaway directory and is
+cleaned). Returns `{valid, address, checks, errors, smoke}`. Omit `body`
+to validate the currently active definition. Use this before updating a
+production property.
+
+## cortex_property_define
+Define a new executable entity property
+
+Creates `<Type>/<property>` at version 1: the Ruby `body` (the annotated
+entity is the receiver; declared `arguments` arrive as task inputs and as
+locals), the `property_type` arity (`single`, `array`, `both`),
+`result_type`, argument specs and same-type `dependencies`. Refuses if an
+active property exists at that address. The candidate is compiled in a
+staging module before anything is written, and optionally smoke-tested.
+Bodies are trusted executable Ruby: definitions are written by agents with
+write access to the workspace, not sandboxed.
+
+## cortex_property_update
+Update an entity property at a known version
+
+Requires `expected_version` matching the active version (optimistic
+locking: a mismatch is an error listing both versions). Omitted fields
+keep their current value. The current body and metadata are snapshotted to
+`.history/<Type>/<property>/NNNNNN.{rb,json}`, the candidate is staged,
+and only then is the new version activated. Changing `body`, `arguments`,
+`dependencies` or the arity changes the definition digest, which
+invalidates every job of that property — that is the intended behavior for
+executable evidence. Description-only updates keep the digest (docs do not
+invalidate caches).
+
+## cortex_property_remove
+Remove an entity property, keeping its history
+
+Requires `expected_version`. Snapshots the active definition to
+`.history/`, writes a tombstone (metadata with `active: false`,
+`removed: true`) and deletes the active `.rb` so the property is no longer
+executable or resolvable. The metadata and all history are preserved, and
+the address can be redefined later. Removal of executable evidence is
+always deliberate and reversible in intent: nothing is silently dropped.
+
+## cortex_entity_property
+Execute an entity property and return an evidence receipt
+
+Runs the active definition for `entity` (a scalar, or a JSON array for a
+list of entities) with `arguments`, and returns exactly:
+
+```json
+{
+  "entity_type": "Gene",
+  "entity": "Tp53",
+  "property": "activity_in_treatment",
+  "arguments": {"treatment": "DMBA"},
+  "definition_version": 1,
+  "definition_digest": "…64 hex…",
+  "property_job": "Gene/activity_in_treatment/Tp53_…",
+  "result": "…"
+}
+```
+
+`property_job` is the `short_path` of the Scout Step that produced the
+result: it is the provenance, so the receipt carries no separate agent
+metadata. The step is content-addressed on the entity, the arguments, and
+the definition identity (version/digest), so an identical call replays
+from cache, while any change to the definition or a dependency invalidates
+the path. `update: true` cleans and recomputes the property job at the
+same path.
+
+Discipline: never transcribe numerical evidence when a property can return
+it — claims and artifacts should cite the property job that produced their
+evidence.
+
+## entity_property (removed)
+Old demonstrator task, removed
+
+The pre-milestone demonstrator `entity_property` was removed. Use
+`cortex_entity_property`; its old `entity_type` input carried entity
+*options* (not a type name), so it does not alias cleanly.

@@ -205,8 +205,20 @@ end
 # lib == current, so we exercise the dedupe/ambiguity logic instead)
 # ---------------------------------------------------------------------
 check('resource_paths dedupes maps that resolve to the same dir') do
-  pairs = Cortex.resource_paths(:artifacts, ART2)
+  # :lib and :current both resolve to this checkout, so asking for exactly
+  # those two maps must collapse to a single physical path.
+  pairs = Cortex.resource_paths(:artifacts, ART2, [:lib, :current])
   raise "EXPECTED: 1 unique path, got #{pairs.inspect}" unless pairs.length == 1
+  pairs
+end
+
+check('resource_paths keeps genuinely distinct maps distinct') do
+  # :user is a different physical directory (~/.scout/var/cortex), so the
+  # full read map list yields one entry per distinct directory.
+  pairs = Cortex.resource_paths(:artifacts, ART2)
+  dirs  = pairs.collect { |_path, map| File.dirname(File.dirname(Cortex.resource_path(:artifacts, ART2, map))) }.uniq
+  raise "EXPECTED: 2 unique roots, got #{dirs.inspect}" unless dirs.length == pairs.length
+  raise "EXPECTED: wanted lib first, got #{pairs.inspect}" unless pairs.first.last == :lib
   pairs
 end
 
@@ -217,13 +229,21 @@ check('resolve_resource reports single location, no false ambiguity') do
 end
 
 check('legacy :current data is listable/readable/searchable') do
-  names = Cortex.namespace_names(:conversations, :current)
-  raise 'EXPECTED: :current conversations not enumerable' unless names.any? { |n| n == 'Summing' }
-  list = Cortex.listing_text('conversations', nil, 0, 50)
-  raise 'EXPECTED: legacy conversation missing from listing' unless list.include?('Summing')
-  hits = Cortex.search_conversations('bash', 'conversations', 10)
-  raise "EXPECTED: legacy conversation not searchable #{hits.inspect[0, 80]}" unless hits.any? { |t, n, _| n == 'Summing' }
-  hits
+  # Self-contained: create the legacy fixture in :current first instead of
+  # depending on live workspace data that may have been cleaned up.
+  fixture = 'probe/test/legacy'
+  make_conversation(fixture, 'bash legacy fixture note')
+  begin
+    names = Cortex.namespace_names(:conversations, :current)
+    raise 'EXPECTED: :current conversations not enumerable' unless names.any? { |n| n == fixture }
+    list = Cortex.listing_text('conversations', nil, 0, 50)
+    raise 'EXPECTED: legacy conversation missing from listing' unless list.include?(fixture)
+    hits = Cortex.search_conversations('bash', 'conversations', 10)
+    raise "EXPECTED: legacy conversation not searchable #{hits.inspect[0, 80]}" unless hits.any? { |t, n, _| n == fixture }
+    hits
+  ensure
+    Cortex.resource_paths(:conversations, fixture).each { |path, _m| Open.rm_rf(path) if File.exist?(path) }
+  end
 end
 
 # ---------------------------------------------------------------------

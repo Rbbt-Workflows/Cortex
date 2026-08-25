@@ -1,7 +1,9 @@
 # Workspace Tools
 
-This page documents the ten `cortex_*` tools agents use to navigate, extend,
-and manage the Cortex workspace.
+This page documents the ten `cortex_*` workspace tools agents use to
+navigate, extend, and manage the Cortex workspace, and the eight
+`cortex_property*` / `cortex_entity_property` tools for executable entity
+properties.
 
 **You should read this if:** you are writing prompts for agents that work
 inside Cortex, or you are an agent that just got the Cortex tools.
@@ -17,6 +19,12 @@ inside Cortex, or you are an agent that just got the Cortex tools.
 5. `cortex_edit` — targeted corrections
 6. `cortex_rename` / `cortex_move` / `cortex_remove` — deliberate
    management of existing resources
+7. `cortex_property_list` / `cortex_property_read` / `cortex_property_validate`
+   — discover and inspect entity properties
+8. `cortex_property_define` / `_update` / `_remove` — version executable
+   definitions (never generic write/edit)
+9. `cortex_entity_property` — execute a property and get an evidence receipt
+   citing the producing job
 
 Rules of thumb:
 
