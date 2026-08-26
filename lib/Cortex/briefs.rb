@@ -6,29 +6,34 @@ require_relative 'storage'
 #
 # A brief is a chat file under briefs/ plus a JSON .meta sidecar recording
 # which agent it belongs to and which job produced it. Resolution follows
-# the readable maps; a missing brief raises with actionable guidance
-# (legacy locations, available briefs).
+# the unified mechanism (CORTEX[ns][name].find across all configured maps);
+# a missing brief raises with actionable guidance (legacy locations,
+# available briefs).
 
 module Cortex
 
   def self.brief_path(brief)
-    resource_path :briefs, brief, default_local_map
+    resource_path :briefs, brief, write_map
   end
 
   def self.brief_meta_path(brief)
-    sidecar_paths(:briefs, brief, default_local_map).first
+    sidecar_paths(:briefs, brief, write_map).first
   end
 
   def self.load_brief(brief)
-    path = brief_path brief
-    return nil unless File.exist?(path)
+    path, = resolve_resource(:briefs, brief)
+    return nil unless path
     chat = Chat.load path
     chat = nil if chat.respond_to?(:empty?) && chat.empty?
     chat
   end
 
   def self.legacy_brief_path(agent, brief)
-    legacy = CORTEX[agent.to_s][brief.to_s].find default_local_map
+    # Historical location var/cortex/<Agent>/<brief>: addressed through the
+    # same mechanism (a non-namespaced toplevel) and only reported, never
+    # silently used.
+    legacy = CORTEX[agent.to_s][brief.to_s]
+    legacy = legacy.find
     legacy if File.exist?(legacy)
   end
 
@@ -41,7 +46,7 @@ module Cortex
     brief = brief.to_s
     messages = ["No brief #{brief} for agent #{agent}."]
 
-    if File.exist?(conversation_path(brief))
+    if resolve_resource(:conversations, brief)
       messages << "A conversation named #{brief} exists in the conversations namespace; conversations are not briefs."
     end
 
@@ -49,7 +54,7 @@ module Cortex
       messages << "Legacy location found (var/cortex/#{agent}/#{brief}); recreate the brief with cortex_brief (workflow Cortex, task cortex_brief)."
     end
 
-    others = namespace_names(:briefs).select { |name| load_brief(name) }
+    others = namespace_names(:briefs, write_map).select { |name| load_brief(name) }
     if others.any?
       messages << "Available briefs: #{others * ', '}"
     else

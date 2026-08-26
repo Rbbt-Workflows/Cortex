@@ -89,7 +89,7 @@ module Cortex
     ].compact
 
     body = meta['body'].to_s
-    return iface.join("\n") + "\n" if body.empty?
+    next iface.join("\n") + "\n" if body.empty?
 
     body_lines = body.lines
     total      = body_lines.length

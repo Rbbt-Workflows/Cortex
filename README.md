@@ -40,6 +40,13 @@ Resources live under `var/cortex/`, separated into four namespaces:
   `cortex_write`/`_edit`/`_rename`/`_move`/`_remove` do not apply to them.
   Discovery is `cortex_property_list`, not `cortex_search` (definitions are
   not indexed for search).
+- `lists/` — named entity lists, addressed `lists/<entity_type>/<list>`
+  (e.g. `lists/TF/C01`, `lists/Composite/cell-cycle.md`). The file body is
+  a newline-separated list of entity ids; a `.meta` sidecar stores
+  `description`, `entity_options`, and provenance (`created_by`,
+  `created_at`, `job`). Lists are read and written with
+  `cortex_write_list`/`cortex_read_list` (and `cortex_read type=lists`),
+  through the same path resolution as every other namespace.
 
 Dot-directories (`.meta`, `.history`) are internal and never listed.
 
@@ -50,17 +57,26 @@ Nested names are legal in all namespaces (`claims/C42.md`,
 
 Each namespace can exist in more than one location, or path map. Cortex
 resolves resources across readable maps and writes to a designated write
-map. The map set is anchored per project:
+map.
 
-- Without an anchor (running from the Cortex checkout itself) the default
-  read order is `:lib`, then `:current`, then `:user`, and the write map
-  is `:current`. `Scout::Config` keys `cortex.write_map` and
-  `cortex.read_maps` override both.
+Resolution is full-path based: a resource is addressed as
+`(namespace, relative path)` and looked up as `CORTEX[namespace][path]`
+followed by `.find`, which traverses every readable map in order (so an
+element present only in a secondary map is still found, at any nesting
+depth). First match wins.
+
 - With an anchor (Scout-AI sets `SCOUT_CHAT_DIR` to the libdir of the chat
   being executed, so the anchor propagates into job subprocesses) the
   anchor project becomes map `:chat`: `CORTEX.libdir` points at the anchor
   project, writes default to `:chat`, and reads search `:chat` plus
-  `:lib`, `:current`, `:user`.
+  `:lib`, `:current`, `:user`. When `SCOUT_CHAT_DIR` is absent the PWD is
+  used as the anchor instead; it feeds the same `:chat` map (no extra
+  synonym is introduced, even though its directory then coincides with
+  `:current`) and is what locates `cortex_path_map.yaml`.
+- Only when neither an ENV anchor nor a usable PWD exists does Cortex run
+  unanchored, with the historical read order `:lib`, `:current`, `:user`
+  and write map `:current`. `Scout::Config` keys `cortex.write_map` and
+  `cortex.read_maps` override both in every mode.
 
 Additional maps come from a per-project `cortex_path_map.yaml` (project
 root or `etc/`), which attaches other projects' cortex stores to this
@@ -129,8 +145,7 @@ content: <answer>}`. The `job=` field is a provenance edge from the
 parent conversation into the child execution (its full chat, tool calls,
 and logs). Because these edges are recorded in the conversation itself,
 downstream analysis can reconstruct the execution graph without scanning
-the workspace. `continue_chat` and `brief_agent` remain as compatibility
-aliases with identical behavior and receipts.
+the workspace. 
 
 ## Examples
 
@@ -202,8 +217,9 @@ receipt contract as `cortex_continue`.
 ## cortex_list
 List workspace namespaces with metadata only
 
-Lists `conversations`, `briefs`, `artifacts`, or `all`, showing name,
-size, mtime (and message count for chats). Contents are never returned.
+Lists `conversations`, `briefs`, `artifacts`, `entities`, `lists`, or
+`all`, showing name, size, mtime (and message count for chats). Contents
+are never returned.
 Dot-directories are hidden. Names present in more than one readable path
 map are tagged with their map. Supports `offset`/`limit` pagination; the
 section header reports shown/total entries and the footer reports the
@@ -213,8 +229,8 @@ next offset when more exist. Use `cortex_read` for content and
 ## cortex_search
 Lexically search conversation, brief, and artifact contents
 
-Case-insensitive search over chat messages and artifact file contents
-across all readable path maps. Single-term queries use substring match;
+Case-insensitive search over chat messages, artifact and entity-list
+file contents across all readable path maps. Single-term queries use substring match;
 multi-term queries require every term (AND). Returns compact matches
 with short snippets (~200 chars) only, never whole files; hits whose
 name exists in more than one path map carry the map tag. Raise the limit
@@ -230,7 +246,11 @@ For conversations and briefs the default is a compact per-message index
 with line-based pagination (`start_line` plus `lines`, default 200 lines
 per page, same 50k cap); the header reports the returned range, total
 lines, and the next start line. Resources found in more than one path
-map resolve to the first readable map and report the ambiguity.
+map resolve to the first readable map and report the ambiguity. Entity
+lists (`type=lists`, name `<entity_type>/<list>`) are returned the same
+way as artifacts: the newline-separated entity ids, with a
+`start_line`/`lines` page header and a trailing meta block when
+`include_meta` information exists.
 
 ## cortex_write
 Write or append a durable artifact
@@ -272,6 +292,25 @@ behind. The namespace is required; there is no implicit
 delete-anything. This is irreversible; use only for deliberate workspace
 management.
 
+## cortex_write_list
+Write a named entity list under lists/<entity_type>/<list>
+
+Stores a newline-separated list of entity ids at
+`lists/<entity_type>/<list>` through the unified path resolution, plus a
+`.meta` sidecar (`description`, `entity_options`, provenance fields such
+as `created_by`/`created_at`/`job`). The list name is the file name
+verbatim (`C01`, `cell-cycle.md`); nested paths are allowed. Returns the
+list address and the entity count.
+
+## cortex_read_list
+Read a named entity list
+
+Returns the newline-separated entities of
+`lists/<entity_type>/<list>` resolved across all readable path maps
+(first match wins; cross-map ambiguity is reported). With `include_meta`
+the `.meta` sidecar (description, entity_options, provenance) is appended
+below the entity count.
+
 ## cortex_move
 Move a resource between path maps keeping its logical name
 
@@ -281,18 +320,6 @@ snapshots travel together as one logical object; the source disappears.
 Artifact `.meta` gets a version record (mode `move`) with from/to maps. The
 target must not already exist. Rename changes the logical name, move changes
 the path map — the two stay distinct.
-
-## continue_chat
-Compatibility alias of cortex_continue
-
-Older name for `cortex_continue`; identical inputs, behavior, and
-receipts. Prefer the canonical name in new code and prompts.
-
-## brief_agent
-Compatibility alias of cortex_brief
-
-Older name for `cortex_brief`; identical inputs, behavior, and receipts.
-Prefer the canonical name in new code and prompts.
 
 ## cortex_property_list
 List entity property definitions with versions and digests
@@ -398,10 +425,3 @@ same path.
 Discipline: never transcribe numerical evidence when a property can return
 it — claims and artifacts should cite the property job that produced their
 evidence.
-
-## entity_property (removed)
-Old demonstrator task, removed
-
-The pre-milestone demonstrator `entity_property` was removed. Use
-`cortex_entity_property`; its old `entity_type` input carried entity
-*options* (not a type name), so it does not alias cleanly.

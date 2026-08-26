@@ -1,17 +1,35 @@
+require_relative '../conversations'
+require_relative '../briefs'
 
 # ==========================================================================
 # Cortex conversation/brief tasks (+ legacy aliases at the bottom)
 # ==========================================================================
+#
+# The dep-chat builder reads through the unified resolution mechanism
+# (storage.rb): resolve_resource traverses every configured path map in
+# read order, so a conversation or brief stored in a secondary map (a
+# yaml-configured one, :lib, ...) seeds the new turn.  When it exists
+# nowhere the chat starts empty, exactly like a brand-new conversation.
 
 module Cortex
 
   # Single dep-chat builder used by cortex_continue (conversations
   # namespace) and cortex_brief (fresh brief: prompt only).
   def self.conversation_prompt_chat(conversation, prompt, namespace: :conversations)
-    path = resource_path namespace, conversation, default_local_map
-    chat = File.exist?(path) ? Chat.load(path) : Chat.setup([])
+    chat = load_conversation_or_brief(conversation, namespace)
     chat.user prompt
     chat
+  end
+
+  # Existing conversation/brief (a Chat) or an empty one.  Reads go through
+  # resolve_resource (first match across read_maps); when the resource does
+  # not exist yet the empty Chat is returned so the caller builds a fresh
+  # history and the save path (write map) decides where it is stored.
+  # Malformed chat files fail loudly instead of being silently dropped.
+  def self.load_conversation_or_brief(name, namespace)
+    path, = resolve_resource(namespace, name)
+    return Chat.setup([]) unless path
+    Chat.load path
   end
 
   input :agent, :string, 'Agent name; optionally Agent/brief_name to load a brief stored in the Cortex briefs namespace (e.g. Worker/math loads brief math for agent Worker)', nil
@@ -59,7 +77,4 @@ module Cortex
   # Compatibility aliases: continue_chat -> cortex_continue,
   # brief_agent -> cortex_brief. Same inputs, same receipts.
   # ------------------------------------------------------------------
-  task_alias :continue_chat, Cortex, :cortex_continue
-  task_alias :brief_agent, Cortex, :cortex_brief
-
 end

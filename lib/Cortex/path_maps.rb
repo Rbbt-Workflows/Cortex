@@ -1,7 +1,7 @@
 require_relative 'storage'
 
 # ==========================================================================
-# Cortex path maps: anchor discovery, per-project yaml configuration
+# Cortex path maps: anchor discovery, map configuration, map order
 # ==========================================================================
 #
 # PROBLEM this module solves
@@ -14,22 +14,31 @@ require_relative 'storage'
 #
 # DESIGN
 # ------
+# CORTEX is configured ONCE with the complete set of path maps AND the map
+# order.  Everything downstream then resolves resources with plain Path
+# calls (CORTEX[type][full_path].find / .follow), so a single mechanism --
+# Scout's own -- traverses every configured location in the right order.
+#
 # 1. ANCHOR: the libdir of the project that is the object of the
 #    `scout-ai llm ask`. scout-ai sets ENV['SCOUT_CHAT_DIR'] (||=, never
-#    clobbering) once, at chat-compile entry (see
-#    lib/scout/llm/chat.rb, LLM.chat); ENV propagates into exec/bwrap job
-#    subprocesses, which a PWD-based anchor could not do (PWD under exec is
-#    the workflow's own directory). Scout::Config may pin the same value
-#    (config key `chat_dir`) for tests and explicit overrides.
+#    clobbering) once, at chat-compile entry (see lib/scout/llm/chat.rb,
+#    LLM.chat); ENV propagates into exec/bwrap job subprocesses, which a
+#    PWD-based anchor could not do (PWD under exec is the workflow's own
+#    directory).  When SCOUT_CHAT_DIR is absent, Dir.pwd is used as the
+#    anchor instead: no new map name is introduced (the anchor simply feeds
+#    the SAME :chat map, whose directory then coincides with what :current
+#    would resolve to), but it still locates cortex_path_map.yaml and keeps
+#    the resolution deterministic.  Scout::Config may pin the anchor for
+#    tests and explicit overrides (config key `cortex.chat_dir`).
 #
-# 2. CORTEX RECONFIGURATION: the first time any path map is needed,
-#    configure_cortex! gives CORTEX a libdir (the anchor) and instance-level
-#    path_maps (a private copy of Path.path_maps — the global table is never
-#    mutated) such that:
+# 2. CORTEX CONFIGURATION: the first time any path map is needed,
+#    configure_cortex! gives CORTEX a libdir (the anchor), instance-level
+#    path_maps (a private copy of Path.path_maps -- the global table is
+#    never mutated) and an instance map_order such that:
 #      :chat  -> {LIBDIR}/{TOPLEVEL}/{SUBPATH} with LIBDIR = the anchor project
 #      :lib   -> pinned to the Cortex checkout template       (shared store)
-#    so from ComputerUse, :chat is ComputerUse/var/cortex and :lib is
-#    Cortex/var/cortex — both deterministic, neither stack-dependent.
+#    and, when an anchor is present, the map_order BEGINS with :chat so a
+#    plain .find finds the invoking project's copy first.
 #
 # 3. PER-PROJECT EXTRA MAPS: if the anchor project carries a
 #    cortex_path_map.yaml (project root first, then etc/), every entry
@@ -44,10 +53,10 @@ require_relative 'storage'
 #          lib:                      # optional: redefine :lib itself
 #            dir: /home/mvazque2/git/workflows/Cortex
 #
-#    Read traversal order becomes [configured maps in yaml order, then :lib,
-#    :current, :user]; read_only maps are readable but rejected as move/write
-#    targets. Without an anchor (direct library use from the checkout) every
-#    map keeps its historical template and behaviour is unchanged.
+#    Read traversal order becomes [:chat (when anchored), configured maps in
+#    yaml order, then :lib, :current, :user]; read_only maps are readable
+#    but rejected as move/write targets. Without an anchor every map keeps
+#    its historical template and behaviour is unchanged.
 
 module Cortex
 
@@ -57,22 +66,28 @@ module Cortex
 
   # --- anchor ---------------------------------------------------------
 
-  # Libdir of the project the chat belongs to, or nil when Cortex is used
-  # directly from its own checkout. ENV (set by scout-ai) wins over Config.
+  # Libdir of the project the chat belongs to.  SCOUT_CHAT_DIR (set by
+  # scout-ai, inherited by job subprocesses) wins, then the config key,
+  # then Dir.pwd.  Always a concrete directory; nil only when nothing
+  # usable is found.
   def self.chat_anchor
-    anchor = ENV['SCOUT_CHAT_DIR']
-    anchor ||= Scout::Config.get('chat_dir', 'cortex', env: 'SCOUT_CHAT_DIR')
-    return nil if anchor.nil? || anchor.to_s.empty?
-    anchor = File.expand_path(anchor.to_s)
-    # Marker-based climbs can overshoot to '/' (a bare dir has a lib/ marker
-    # at the filesystem root); guard it explicitly.
-    return nil if anchor == '/'
-    anchor
+    @@chat_anchor ||= begin
+                        anchor = ENV['SCOUT_CHAT_DIR']
+                        anchor ||= Scout::Config.get('chat_dir', 'cortex', env: 'SCOUT_CHAT_DIR')
+                        anchor ||= Dir.pwd if Dir.pwd && Dir.pwd != '/'
+                        return nil if anchor.nil? || anchor.to_s.empty?
+                        anchor = File.expand_path(anchor.to_s)
+                        # Marker-based climbs can overshoot to '/' (a bare dir has a lib/ marker
+                        # at the filesystem root); guard it explicitly.
+                        return nil if anchor == '/'
+                        anchor
+                      end
   end
 
   # --- configuration --------------------------------------------------
 
   @@configured = nil
+  @@chat_anchor = nil
   @@path_map_config = nil
 
   def self.cortex_configured?
@@ -85,10 +100,24 @@ module Cortex
     CORTEX.libdir
   end
 
-  # Idempotent: installs libdir + instance path_maps on CORTEX and loads the
-  # anchor project's cortex_path_map.yaml if present. Safe to call from any
-  # map lookup; runs at most once per anchor (re-running with a different
-  # anchor re-configures, which keeps tests hermetic).
+  # Idempotent: installs libdir + instance path_maps + map_order on CORTEX
+  # and loads the anchor project's cortex_path_map.yaml if present. Safe to
+  # call from any map lookup; runs at most once per anchor (re-running with
+  # a different anchor re-configures, which keeps tests hermetic).
+  # Forget the memoized anchor and configuration.  Tests (and any nested
+  # re-anchoring) use this to force reconfiguration after changing
+  # SCOUT_CHAT_DIR or the PWD.
+  def self.reset_cortex!
+    @@chat_anchor = nil
+    @@configured = nil
+    @@path_map_config = nil
+    CONFIGURED_READ_ONLY_MAPS.clear
+    # Drop any anchor map installed by a previous in-process configuration;
+    # the fresh configure_cortex! decides whether :chat exists at all.
+    CORTEX.path_maps.delete(:chat) if CORTEX.path_maps.include?(:chat)
+    CORTEX
+  end
+
   def self.configure_cortex!
     anchor = chat_anchor
     return CORTEX if @@configured == anchor
@@ -104,12 +133,13 @@ module Cortex
       maps[:current] = '{LIBDIR}/{TOPLEVEL}/{SUBPATH}'
       maps[:lib] = cortex_checkout_template
 
-      # Read order without an explicit config: the yaml-configured maps first
-      # (declaration order), then the anchor store, then the shared Cortex
-      # store, then the fallbacks. :lib stays readable so foreign projects
-      # can still consult the shared store and promote into it.
-
       CORTEX.libdir = anchor
+    else
+      # Unanchored: there is no anchor project, so no :chat map and no
+      # :current override.  :lib keeps its historical (Cortex checkout)
+      # template and :current stays the CWD-based one.
+      maps.delete(:chat)
+      maps[:lib] = cortex_checkout_template
     end
 
     # Rebuild the configured read-only list from scratch on every
@@ -126,10 +156,33 @@ module Cortex
       CONFIGURED_READ_ONLY_MAPS << name.to_sym if spec['read_only'].to_s == 'true'
     end
 
+    maps.delete(:chat) unless anchor
+    # A previous in-process configuration (tests, nested use) may have
+    # installed an anchor map; when unanchored there is no anchor, so drop
+    # it.  Scout::CORTEX reuses the same object as Path.path_maps in some
+    # load orders, hence the delete before assignment.
     CORTEX.path_maps = maps
+    CORTEX.path_maps.delete(:chat) unless anchor
+    CORTEX.map_order = default_map_order(yaml, !anchor.nil?)
+
     @@configured = anchor
     @@path_map_config = yaml
     CORTEX
+  end
+
+  # Instance map order: the anchor map first (when anchored), then the
+  # yaml-configured maps in declaration order (minus :lib, which keeps its
+  # historical tail position), then the historical tail :lib, :current,
+  # :user.  A plain .find on CORTEX[ns][name] therefore traverses every
+  # configured location in exactly this order.
+  def self.default_map_order(yaml = nil, anchored = nil)
+    anchored = !chat_anchor.nil? if anchored.nil?
+    yaml ||= (@@path_map_config || {})
+    extra = yaml.keys - ['lib']
+    order = []
+    order << :chat if anchored
+    order += extra.collect(&:to_sym)
+    order + [:lib, :current, :user]
   end
 
   # Absolute template for the shared Cortex store: the directory containing
@@ -147,18 +200,18 @@ module Cortex
     return {} if anchor.nil?
     if @@path_map_config.nil?
       config = begin
-                            file = [File.join(anchor, 'cortex_path_map.yaml'),
-                                    File.join(anchor, 'etc', 'cortex_path_map.yaml')].find { |f| File.file?(f) }
-                            maps = nil
-                            if file
-                            require 'yaml'
-                            doc = YAML.safe_load(Open.read(file)) || {}
-                              maps = doc['maps'] || {}
-                            end
-                            raise ScoutException,
-                                  "Invalid cortex_path_map.yaml #{file}: 'maps' must be a mapping of name -> {dir:, read_only:}" if maps && !(Hash === maps)
-                            maps || {}
-                          end
+                 file = [File.join(anchor, 'cortex_path_map.yaml'),
+                         File.join(anchor, 'etc', 'cortex_path_map.yaml')].find { |f| File.file?(f) }
+                 maps = nil
+                 if file
+                   require 'yaml'
+                   doc = YAML.safe_load(Open.read(file)) || {}
+                   maps = doc['maps'] || {}
+                 end
+                 raise ScoutException,
+                       "Invalid cortex_path_map.yaml #{file}: 'maps' must be a mapping of name -> {dir:, read_only:}" if maps && !(Hash === maps)
+                 maps || {}
+               end
       @@path_map_config = config
     end
     @@path_map_config
@@ -177,6 +230,12 @@ module Cortex
     CORTEX.path_maps.include?(map.to_sym)
   end
 
+  # The traversal order CORTEX uses for a plain .find.
+  def self.map_order
+    configure_cortex!
+    CORTEX.map_order
+  end
+
   # Read-only maps: the module-level :user plus any yaml `read_only: true`
   # entries recorded in CONFIGURED_READ_ONLY_MAPS at configure time.
   def self.read_only_map?(map)
@@ -190,8 +249,13 @@ module Cortex
     CORTEX.path_maps.keys - READ_ONLY_MAPS - CONFIGURED_READ_ONLY_MAPS
   end
 
-  # Stable name other modules delegate to; `write_map` may be overridden
-  # by later requires (entities.rb defines its own delegation).
+  # Stable alias: the anchor is the project owning this Cortex session,
+  # wherever it came from (SCOUT_CHAT_DIR, config, or the PWD fallback).
+  def self.project_anchor
+    chat_anchor
+  end
+
+  # Stable name other modules delegate to.
   def self.configured_write_map
     configure_cortex!
     # No Config `default:` here on purpose: Scout::Config caches resolved
@@ -211,7 +275,7 @@ module Cortex
     # Same Config default-caching caveat as write_map: the fallback is
     # resolved in Ruby, not through `default:`.
     maps = Scout::Config.get('read_maps', 'cortex')
-    maps ||= default_read_maps
+    maps ||= map_order
     maps = maps.to_s.split(',').collect{|m| m.strip } unless Array === maps
     maps = maps.collect(&:to_sym)
     unknown = maps - map_names
@@ -220,16 +284,13 @@ module Cortex
   end
 
   def self.default_read_maps
-    configure_cortex!
-    extra = (@@path_map_config || {}).keys - %w(lib)
-    extra.collect(&:to_sym) + [:lib, :current, :user]
+    map_order
   end
 
   def self.map_tag(map, maps = nil)
     maps ||= read_maps
     maps.length > 1 ? ":#{map}" : ''
   end
-
 
   def self.write_map
     configured_write_map

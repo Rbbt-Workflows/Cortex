@@ -23,7 +23,7 @@ module Cortex
     Cortex.edit_artifact(name, find, replace, all: all, job: self.short_path, agent: agent)
   end
 
-  input :type, :select, "Namespace of the resource to rename", nil, {select_options: %w(conversations briefs artifacts), required: true, jobname: true}
+  input :type, :select, "Namespace of the resource to rename", nil, {select_options: Cortex::NAMESPACES, required: true, jobname: true}
   input :name, :string, 'Current logical name', nil, required: true
   input :new_name, :string, 'New logical name', nil, required: true
   input :agent, :string, 'Optional agent name recorded in the .meta version entry', nil
@@ -31,14 +31,14 @@ module Cortex
     Cortex.rename_resource(type, name, new_name, job: self.short_path, agent: agent)
   end
 
-  input :type, :select, "Namespace of the resource to remove", nil, {select_options: %w(conversations briefs artifacts), required: true, jobname: true}
+  input :type, :select, "Namespace of the resource to remove", nil, {select_options: Cortex::NAMESPACES, required: true, jobname: true}
   input :name, :string, 'Logical name to remove', nil, required: true
   task :cortex_remove => :text do |type,name|
     removed = Cortex.remove_resource(type, name, job: self.short_path)
     "Removed: #{removed.length} item#{removed.length == 1 ? '' : 's'} (#{removed.collect { |p| Log.truncate_string(p, 60) } * ', '})"
   end
 
-  input :type, :select, "Namespace of the resource to move", nil, {select_options: %w(conversations briefs artifacts), required: true, jobname: true}
+  input :type, :select, "Namespace of the resource to move", nil, {select_options: Cortex::NAMESPACES, required: true, jobname: true}
   input :name, :string, 'Logical name to move', nil, required: true
   # Path maps are project-configurable (cortex_path_map.yaml), so the target
   # cannot be a fixed select list: any configured writable map name is

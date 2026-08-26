@@ -8,19 +8,20 @@ require_relative 'storage'
 #   .meta/<name>.json    version records (job, agent, mode, map, size, ts)
 #   .history/<name>/     one snapshot per replace/edit, <ts>.<seq>
 # Sidecars travel with the resource on rename/move (see storage.rb).
+# Path resolution is the unified mechanism from storage.rb.
 
 module Cortex
 
   def self.artifact_path(artifact)
-    resource_path :artifacts, artifact, default_local_map
+    resource_path :artifacts, artifact, write_map
   end
 
   def self.artifact_history_path(name)
-    sidecar_paths(:artifacts, name, default_local_map)[1]
+    sidecar_paths(:artifacts, name, write_map)[1]
   end
 
   def self.artifact_meta_path(name)
-    sidecar_paths(:artifacts, name, default_local_map)[0]
+    sidecar_paths(:artifacts, name, write_map)[0]
   end
 
   def self.write_artifact(path, content, mode = :replace, job: nil, agent: nil, map: nil)
@@ -80,9 +81,9 @@ module Cortex
   end
 
   def self.remove_resource(namespace, name, job: nil)
-    namespace = namespace.to_sym
+    namespace = validate_namespace!(namespace)
     path, map, = resolve_resource namespace, name
-    raise ScoutException, "No #{namespace.to_s.chomp('s')} named #{name.inspect} in the Cortex #{namespace} namespace" unless path
+    raise ScoutException, "No #{SINGULAR[namespace.to_s]} named #{name.inspect} in the Cortex #{namespace} namespace" unless path
 
     removed = [path] + existing_sidecars(namespace, name, map)
     removed.each { |p| Open.rm_rf p }
@@ -93,10 +94,10 @@ module Cortex
   end
 
   def self.rename_resource(namespace, name, new_name, job: nil, agent: nil)
-    namespace = namespace.to_sym
+    namespace = validate_namespace!(namespace)
     sanitize_resource_name! new_name
     path, map, = resolve_resource namespace, name
-    raise ScoutException, "No #{namespace.to_s.chomp('s')} named #{name.inspect} in the Cortex #{namespace} namespace" unless path
+    raise ScoutException, "No #{SINGULAR[namespace.to_s]} named #{name.inspect} in the Cortex #{namespace} namespace" unless path
     raise ScoutException, "Rename target #{new_name.inspect} already exists in the Cortex #{namespace} namespace" if resource_exists?(namespace, new_name)
 
     target = resource_path namespace, new_name, map
@@ -104,17 +105,11 @@ module Cortex
     FileUtils.mv path, target
 
     # Move sidecars (meta + history) with the resource.
-    s_path = sidecar_paths(namespace, name, map)[0]
-    if File.exist?(s_path)
-      t_side = sidecar_paths(namespace, new_name, map)[0]
+    sidecar_paths(namespace, name, map).each_with_index do |s_path, idx|
+      next unless File.exist?(s_path)
+      t_side = sidecar_paths(namespace, new_name, map)[idx]
       Open.mkdir File.dirname(t_side)
       FileUtils.mv s_path, t_side
-    end
-    h_path = sidecar_paths(namespace, name, map)[1]
-    if h_path && File.exist?(h_path)
-      t_side = sidecar_paths(namespace, new_name, map)[1]
-      Open.mkdir File.dirname(t_side)
-      FileUtils.mv h_path, t_side
     end
 
     if namespace == :artifacts
@@ -134,13 +129,13 @@ module Cortex
   end
 
   def self.move_resource(namespace, name, to_map, job: nil, agent: nil)
-    namespace = namespace.to_sym
+    namespace = validate_namespace!(namespace)
     to_map = to_map.to_sym
     raise ScoutException, "Unknown Cortex path map :#{to_map}; configured maps: #{map_names * ', '}" unless map?(to_map)
     raise ScoutException, "Cortex path map :#{to_map} is read-only; writable maps: #{writable_maps * ', '}" if read_only_map?(to_map)
 
     path, map, = resolve_resource namespace, name
-    raise ScoutException, "No #{namespace.to_s.chomp('s')} named #{name.inspect} in the Cortex #{namespace} namespace" unless path
+    raise ScoutException, "No #{SINGULAR[namespace.to_s]} named #{name.inspect} in the Cortex #{namespace} namespace" unless path
     target = resource_path namespace, name, to_map
     if to_map == map || target == path
       # Maps can resolve to the same physical directory (:lib and :current do

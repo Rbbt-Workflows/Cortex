@@ -205,9 +205,14 @@ end
 # lib == current, so we exercise the dedupe/ambiguity logic instead)
 # ---------------------------------------------------------------------
 check('resource_paths dedupes maps that resolve to the same dir') do
-  # :lib and :current both resolve to this checkout, so asking for exactly
-  # those two maps must collapse to a single physical path.
-  pairs = Cortex.resource_paths(:artifacts, ART2, [:lib, :current])
+  # From the scout-ai libdir the session runs anchored: :chat and :current
+  # both resolve to the anchor project, so asking for exactly those two maps
+  # must collapse to a single physical path.  (When unanchored, :lib and
+  # :current play the same role.)
+  dup_pair = %i(chat current lib).each_cons(2).map { |a,b| [a,b] }.
+    find { |a,b| Cortex.resource_path(:artifacts, ART2, a) == Cortex.resource_path(:artifacts, ART2, b) }
+  raise 'PRECONDITION failed: no two maps share a directory' unless dup_pair
+  pairs = Cortex.resource_paths(:artifacts, ART2, dup_pair)
   raise "EXPECTED: 1 unique path, got #{pairs.inspect}" unless pairs.length == 1
   pairs
 end
@@ -367,8 +372,11 @@ end
 check('cortex_write path/name routing survives long multi-line content') do
   long = (1..80).collect { |i| "line \#{i} " + ('x' * 60) } * "\n"
   t = "F10Probe#{Time.now.to_i}"
-  Cortex.job(:cortex_write, t, path: 'scratch/f10_regression.md', content: long, mode: 'replace').exec
-  read = Cortex.job(:cortex_read, t, name: 'scratch/f10_regression.md', type: 'artifacts').exec
+  # Unique path: the historical one exists in a second path map, which makes
+  # cortex_read prefix a cross-map [note] line and break the byte comparison.
+  art = "scratch/f10_regression_#{t}.md"
+  Cortex.job(:cortex_write, t, path: art, content: long, mode: 'replace').exec
+  read = Cortex.job(:cortex_read, t, name: art, type: 'artifacts').exec
   read = read.sub(/\A# lines [^\n]*\n/, '').sub(/\n\z/, '')
   raise "ROUNDTRIP failed (#{read.length} vs #{long.length})" unless read == long
 

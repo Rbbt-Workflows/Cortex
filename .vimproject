@@ -1,4 +1,5 @@
 Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.txt *.conf *.slim *.haml" {
+	README.md
  workflow.rb
  chats=chats filter="*"{
   EvolveCortex.md
@@ -18,12 +19,14 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
    entities.rb
    helpers.rb
    listing.rb
+   lists.rb
    path_maps.rb
    storage.rb
    tasks=tasks{
     artifact.rb
     conversation.rb
     entity.rb
+    list.rb
     listing.rb
    }
   }

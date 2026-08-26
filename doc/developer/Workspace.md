@@ -38,9 +38,13 @@ Convenience accessors (`conversation_path`, `brief_path`, `artifact_path`,
 
 1. **Anchor.** `SCOUT_CHAT_DIR` (set by Scout-AI to the libdir of the chat
    being executed; inherited by job subprocesses, including the ComputerUse
-   bwrap sandbox) or the `Scout::Config` key `cortex.chat_dir`. Without an
-   anchor (running from the Cortex checkout) maps collapse to the checkout:
-   `:lib`, `:current`, `:user`, write `:current`.
+   bwrap sandbox), the `Scout::Config` key `cortex.chat_dir`, or, when
+   neither is present, `Dir.pwd`. The PWD fallback deliberately feeds the
+   same `:chat` map instead of introducing a `:pwd`/`:current` synonym: it
+   only anchors discovery (`cortex_path_map.yaml`, libdir, write map).
+   Only when no usable anchor exists at all (no ENV, no config, PWD `/`)
+   do maps collapse to the checkout: `:lib`, `:current`, `:user`, write
+   `:current`.
 2. **yaml maps.** `cortex_path_map.yaml` (project root, then `etc/`)
    attaches other projects' cortex stores:
 
@@ -63,12 +67,28 @@ collapsed to the checkout).
 
 ## Resolution and ambiguity
 
+There is exactly one resolution mechanism: `Cortex.cortex_path(ns, name)`
+returns `CORTEX[ns][name]` annotated with the complete instance-level
+`path_maps` and `map_order`, and every lookup is either `.find` (first
+match across all maps, in map order) or `.follow(map)` (one concrete map,
+used for write targets). No namespace implements its own search. Names
+are arbitrary-depth relative paths.
+
 `resource_paths` deduplicates maps that resolve to the same physical
 directory (in this checkout `:lib` and `:current` coincide, so legacy data
-is seen exactly once). Reads resolve in `read_maps` order (`:lib` first);
-when a name exists in two *different* physical locations, `cortex_read`
-prints both paths instead of silently picking one, and `cortex_list` /
-`cortex_search` tag such names with `:map` suffixes.
+is seen exactly once). Reads resolve in `read_maps` order (`:chat` first
+when anchored); when a name exists in two *different* physical locations,
+reads resolve to the first map and report the ambiguity, and
+`cortex_list` / `cortex_search` tag such names with `:map` suffixes.
+
+## Entity lists
+
+`lists/<entity_type>/<list>` files hold newline-separated entity ids; the
+`.meta/<entity_type>/<list>.yaml` sidecar holds `description`,
+`entity_options`, and provenance (`created_by`, `created_at`, `job`).
+`lib/Cortex/lists.rb` implements read/write on top of the same resolver;
+tasks are `cortex_write_list` / `cortex_read_list`, and `cortex_read
+type=lists` pages them like artifacts.
 
 ## Listing and search
 

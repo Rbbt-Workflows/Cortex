@@ -104,16 +104,11 @@ module Cortex
 
 
     # ------------------------------------------------------------------
-    # Path maps.  These mirror workflow.rb exactly; when workflow.rb is
-    # loaded afterwards its definitions take precedence (same semantics).
-    # They are duplicated here so the file is usable standalone (no workflow
-    # task declarations, no require of workflow.rb).
+    # Path maps: delegated to the unified resolution mechanism
+    # (lib/Cortex/path_maps.rb + lib/Cortex/storage.rb).  The entity engine
+    # keeps NO map logic of its own.
     # ------------------------------------------------------------------
 
-    # Delegated to Cortex.path_maps so the entity engine follows the same
-    # anchor/yaml configuration as the rest of the workflow (historical
-    # duplicates kept Config-cached defaults that ignored a later anchor
-    # change and never consulted the yaml maps).
     def write_map
       Cortex.configured_write_map
     end
@@ -126,42 +121,28 @@ module Cortex
       maps ||= read_maps
       maps.length > 1 ? %q{:} + map.to_s : %q{}
     end
+
     # ------------------------------------------------------------------
     # Storage paths (relative to each path map root)
     # ------------------------------------------------------------------
 
-    # Frozen absolute var root.  `Scout.var` is the RELATIVE path "var" and
-    # task bodies run with CWD = the installed workflow directory
-    # (~/.rbbt/workflows/Cortex, a hardlink of this repo's workflow.rb), so a
-    # relative root would put entity storage in a different physical place for
-    # engine calls made from the repo CWD than for task bodies -- definitions
-    # would be written in one place and read from another.  Anchoring to the
-    # repository that ships this engine makes both contexts share storage.
+    # Frozen absolute var root, the historical engine isolation.  When unset
+    # the engine follows the unified CORTEX root (anchored in path_maps.rb),
+    # so entity storage shares the same anchor/yaml configuration as every
+    # other namespace.  Callers that need a scratch root (the test suite)
+    # pin @entity_root before first use.
     def entity_root
       @entity_root ||= begin
-        repo = File.expand_path('../..', __dir__)
-        raw  = Scout.var.to_s
-        raw  = File.expand_path(raw, repo) unless raw.start_with?('/')
-        Path.setup raw
+        root = Cortex.namespace_dir(ENTITIES_NAMESPACE, write_map)
+        Path.setup File.dirname(File.dirname(root.to_s))
       end
     end
 
     def entities_dir(map = nil)
       # Entity definitions are always concrete files (the compiler reads them
       # with File.read for backtrace-correct module_eval), never step archives
-      # or symlinks, so use the plain (non-follow) map root. Falls back to a
-      # direct path under Scout.var when workflow.rb is not loaded (pure-lib
-      # usage and smoke tests).
-      # `Scout.var` is the RELATIVE path "var".  Task bodies executed through
-      # the Step machinery run with CWD = the *installed* workflow directory
-      # (~/.rbbt/workflows/Cortex, a hardlink of this repo's workflow.rb), so a
-      # relative var would resolve entity storage to a different physical root
-      # than engine-level calls made from the repo CWD -- definitions would be
-      # written in one place and read from another.  Freeze the var root once,
-      # anchored to the repository that ships this engine, so both contexts see
-      # the same storage.
-      dir = entity_root.cortex[ENTITIES_NAMESPACE.to_s].find(map || :current)
-      Path === dir ? dir.to_s : dir
+      # or symlinks, so use the plain (non-follow) map root.
+      Cortex.namespace_dir(ENTITIES_NAMESPACE, map || write_map).to_s
     end
 
     def entity_body_path(type, property, map = nil)

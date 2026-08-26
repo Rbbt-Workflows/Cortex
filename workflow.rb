@@ -10,6 +10,7 @@ require 'Cortex/storage'
 require 'Cortex/conversations'
 require 'Cortex/briefs'
 require 'Cortex/artifacts'
+require 'Cortex/lists'
 require 'Cortex/listing'
 
 # ==========================================================================
@@ -19,18 +20,20 @@ require 'Cortex/listing'
 # workflow.rb is the module skeleton + requires only. Implementation lives
 # in lib/Cortex:
 #
-#   path_maps.rb     anchor discovery (SCOUT_CHAT_DIR), per-project
-#                    cortex_path_map.yaml maps, write/read map selection
-#   storage.rb       namespace x logical name x path map abstraction
+#   path_maps.rb     anchor discovery (SCOUT_CHAT_DIR / PWD fallback),
+#                    per-project cortex_path_map.yaml maps, map order
+#   storage.rb       THE unified path-resolution mechanism
+#                    (CORTEX[namespace][full_path].find across all maps)
 #   conversations.rb conversations namespace accessors + persistence
 #   briefs.rb        briefs namespace (chat + .meta sidecar)
 #   artifacts.rb     artifacts write/edit + rename/remove/move
+#   lists.rb         named entity lists (<entity_type>/<list> + .meta)
 #   listing.rb       listing, search, bounded read
 #   entities.rb      entity property engine (+ tasks/entity.rb)
 #
 # Tasks are declared in lib/Cortex/tasks: conversation.rb (continue, brief),
 # listing.rb (list/search/read), artifact.rb (write/edit/rename/remove/move),
-# entity.rb (property lifecycle).
+# list.rb (entity lists), entity.rb (property lifecycle).
 
 module Cortex
   extend Workflow
@@ -59,6 +62,9 @@ module Cortex
   helper :parse_range do |range| Cortex.parse_range(range) end
   helper :cap_string do |text,cap=Cortex::READ_CAP| Cortex.cap_string(text, cap) end
   helper :write_artifact do |path,content,mode=:replace,**kw| Cortex.write_artifact(path, content, mode, **kw) end
+  helper :list_name do |entity_type,list| Cortex.list_name(entity_type, list) end
+  helper :write_list do |entity_type,list,entities,**kw| Cortex.write_list(entity_type, list, entities, **kw) end
+  helper :read_list do |entity_type,list| Cortex.read_list(entity_type, list) end
 
   helper :load_agent_conversation do |agent_conversation=nil|
     agent = if agent_conversation.nil?
@@ -78,10 +84,12 @@ module Cortex
   require 'Cortex/tasks/conversation'
   require 'Cortex/tasks/listing'
   require 'Cortex/tasks/artifact'
+  require 'Cortex/tasks/list'
 
-  export_exec :cortex_continue, :cortex_brief, :continue_chat, :brief_agent,
+  export_exec :cortex_continue, :cortex_brief,
          :cortex_list, :cortex_search, :cortex_read, :cortex_write,
          :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move,
+         :cortex_write_list, :cortex_read_list,
          :cortex_property_list, :cortex_property_read, :cortex_property_history,
          :cortex_property_validate, :cortex_property_define, :cortex_property_update,
          :cortex_property_remove, :cortex_entity_property

@@ -10,10 +10,11 @@ require_relative 'storage'
 
 module Cortex
 
-  # 'entities' is an engine-managed namespace (lib/Cortex/entities.rb): the
-  # storage helpers know how to address it, but entity lifecycle is driven
-  # by Cortex.define_property / update_property / remove_property.
-  VALID_TYPES = %w(conversations briefs artifacts entities).freeze
+  # 'entities' is an engine-managed namespace (lib/Cortex/entities.rb) and
+  # 'lists' is lib/Cortex/lists.rb; both are addressable through the same
+  # storage helpers, but entity lifecycle is driven by
+  # Cortex.define_property / update_property / remove_property.
+  VALID_TYPES = NAMESPACES.dup.freeze
 
   def self.validate_type!(type)
     type = 'all' if type.nil?
@@ -36,13 +37,13 @@ module Cortex
     when 'conversations', 'briefs' then ['#name', 'messages', 'bytes', 'mtime']
     when 'artifacts' then ['#name', 'bytes', 'mtime']
     when 'entities' then ['#name', 'version', 'digest', 'type', 'mtime']
+    when 'lists' then ['#name', 'entities', 'mtime']
     end
   end
 
   def self.namespace_listing(type, prefix = nil)
     type = type.to_s
     prefix = prefix.to_s unless prefix.nil?
-    ambiguous = ambiguous_names(type.to_sym)
     case type
     when 'conversations', 'briefs'
       namespace_entries(type.to_sym).
@@ -54,13 +55,18 @@ module Cortex
           [name + tag, chat_messages(chat).length.to_s, File.size(path).to_s,
            File.mtime(path).strftime('%Y-%m-%d %H:%M')]
         end.compact
-    when 'artifacts'
-      namespace_entries(:artifacts).
+    when 'artifacts', 'lists'
+      namespace_entries(type.to_sym).
         select { |name, _map, _path| prefix.nil? || name.start_with?(prefix) }.
         collect do |name, map, path|
           next nil unless File.file?(path)
           tag = map_tag map
-          [name + tag, File.size(path).to_s, File.mtime(path).strftime('%Y-%m-%d %H:%M')]
+          count = type == 'lists' ? Open.read(path).to_s.split("\n").collect(&:strip).reject(&:empty?).length.to_s : nil
+          row = [name + tag]
+          row << count if count
+          row << File.size(path).to_s
+          row << File.mtime(path).strftime('%Y-%m-%d %H:%M')
+          row
         end.compact
     when 'entities'
       # Group by entity type; each row is one property definition
@@ -73,15 +79,15 @@ module Cortex
           meta_path = File.join(namespace_dir(:entities, map), '.meta',
                                 *name.split(File::SEPARATOR)[0..-2],
                                 "#{File.basename(name, '.*')}.json")
-          version = digest = type = nil
+          version = digest = ptype = nil
           if File.file?(meta_path)
             meta = JSON.parse(File.read(meta_path)) rescue {}
             version = meta['version'].to_s
             digest  = meta['digest'].to_s[0, 8]
-            type    = meta['property_type'].to_s
+            ptype    = meta['property_type'].to_s
           end
           tag = map_tag map
-          [name + tag, version.to_s, digest.to_s, type.to_s,
+          [name + tag, version.to_s, digest.to_s, ptype.to_s,
            File.mtime(path).strftime('%Y-%m-%d %H:%M')]
         end.compact
     end
@@ -163,22 +169,27 @@ module Cortex
     snip.gsub(/\s+/, ' ').strip
   end
 
-  def self.search_artifacts(query, limit)
+  # Artifact-like namespaces (artifacts, lists): plain text content search.
+  def self.search_text_namespace(query, namespace, limit)
     terms = search_terms query
-    ambiguous = ambiguous_names(:artifacts)
+    ambiguous = ambiguous_names(namespace)
     out = []
-    namespace_entries(:artifacts).each do |name, map, path|
+    namespace_entries(namespace).each do |name, map, path|
       next unless File.file?(path)
       tag = ambiguous.include?(name) ? map_tag(map) : ''
       content = Open.read(path).to_s
       next if content.empty?
       down = content.downcase
       next unless matches_query?(down, terms)
-      idx = down.index(terms.first) { |t| down.include?(t) } || down.index(terms.first)
-      out << ['artifacts', name + tag, snippet_around(content, idx)]
+      idx = down.index(terms.first) || 0
+      out << [namespace.to_s, name + tag, snippet_around(content, idx)]
       break if out.length >= limit
     end
     out
+  end
+
+  def self.search_artifacts(query, limit)
+    search_text_namespace(query, :artifacts, limit)
   end
 
   # ------------------------------------------------------------------
@@ -241,7 +252,7 @@ module Cortex
   def self.read_conversation(name, type, last, range)
     path, map, all_paths = resolve_resource(type.to_sym, name)
     unless path
-      raise ScoutException, "No #{type.chomp('s')} named #{name.inspect} in the Cortex #{type} namespace (var/cortex/#{type})"
+      raise ScoutException, "No #{SINGULAR[type]} named #{name.inspect} in the Cortex #{type} namespace (var/cortex/#{type})"
     end
     raise ScoutException, "Path #{path} is a directory" if Open.directory?(path)
     chat = Chat.load path
