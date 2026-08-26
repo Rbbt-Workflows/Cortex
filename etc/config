@@ -1,0 +1,9 @@
+# Cortex workflow configuration
+# read_maps: comma-separated map names searched in order when reading.
+#   Extra maps declared in cortex_path_map.yaml may be listed here.
+# write_map: map used for new writes (must be writable).
+# chat_dir: alternative to SCOUT_CHAT_DIR for pinning the anchor in tests.
+# Examples:
+#   read_maps cortex,ags,lib,current,user cortex
+#   write_map cortex cortex
+#   chat_dir /home/mvazque2/git/workflows/ComputerUse cortex

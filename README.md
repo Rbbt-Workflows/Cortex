@@ -49,9 +49,39 @@ Nested names are legal in all namespaces (`claims/C42.md`,
 ## Path maps
 
 Each namespace can exist in more than one location, or path map. Cortex
-resolves resources across readable maps (by default `:lib` then
-`:current` and `:user`) and writes to a designated write map (`:current`, configurable
-via `Scout::Config`, keys `cortex.write_map` and `cortex.read_maps`).
+resolves resources across readable maps and writes to a designated write
+map. The map set is anchored per project:
+
+- Without an anchor (running from the Cortex checkout itself) the default
+  read order is `:lib`, then `:current`, then `:user`, and the write map
+  is `:current`. `Scout::Config` keys `cortex.write_map` and
+  `cortex.read_maps` override both.
+- With an anchor (Scout-AI sets `SCOUT_CHAT_DIR` to the libdir of the chat
+  being executed, so the anchor propagates into job subprocesses) the
+  anchor project becomes map `:chat`: `CORTEX.libdir` points at the anchor
+  project, writes default to `:chat`, and reads search `:chat` plus
+  `:lib`, `:current`, `:user`.
+
+Additional maps come from a per-project `cortex_path_map.yaml` (project
+root or `etc/`), which attaches other projects' cortex stores to this
+one. Each entry names a map and points at the project root:
+
+    maps:
+      cortex:
+        dir: /home/mvazque2/git/workflows/Cortex
+      ags:
+        dir: /home/mvazque2/git/workflows/AGS
+        read_only: true
+      lib:
+        dir: /home/mvazque2/git/workflows/Cortex
+
+Yaml entries become instance-level maps attached to `CORTEX`; they never
+touch the global `Path.path_maps` table. Entries can redefine `:lib` and
+introduce any number of new maps. `read_only: true` marks a map that is
+searched for reads but rejected as a `cortex_move` target, so shared
+stores can be consumed without being modified. Yaml maps are searched
+after `:chat` and before the defaults (`:lib`, `:current`, `:user`).
+
 When the same logical name exists in more than one map, reads resolve
 deterministically to the first map but say so explicitly, and listings
 tag the name with its map; ambiguity is always visible, never hidden.

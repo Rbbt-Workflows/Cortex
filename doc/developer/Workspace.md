@@ -16,7 +16,7 @@ task contains its own path logic.
 
 | Method | Purpose |
 |--------|---------|
-| `write_map` / `read_maps` | `CORTEX_WRITE_MAP` (`:lib`) and `CORTEX_READ_MAPS` (`[:lib, :current]`) |
+| `write_map` / `read_maps` | write map and read order (see Anchoring and path maps below; `Scout::Config` keys `cortex.write_map` / `cortex.read_maps` override) |
 | `namespace_dir(ns, map = write_map)` | physical directory for a namespace in a path map |
 | `sanitize_resource_name!(name)` | rejects absolute paths, `..`, `~`, and empty names |
 | `resource_path(ns, name, map)` | physical path of a logical name in a map |
@@ -31,6 +31,35 @@ nested names (`probe/test/a.md`), all enumerated recursively, dot-dirs
 
 Convenience accessors (`conversation_path`, `brief_path`, `artifact_path`,
 ... ) are thin wrappers over the same functions.
+
+## Anchoring and path maps
+
+`lib/Cortex/path_maps.rb` resolves the storage root per project:
+
+1. **Anchor.** `SCOUT_CHAT_DIR` (set by Scout-AI to the libdir of the chat
+   being executed; inherited by job subprocesses, including the ComputerUse
+   bwrap sandbox) or the `Scout::Config` key `cortex.chat_dir`. Without an
+   anchor (running from the Cortex checkout) maps collapse to the checkout:
+   `:lib`, `:current`, `:user`, write `:current`.
+2. **yaml maps.** `cortex_path_map.yaml` (project root, then `etc/`)
+   attaches other projects' cortex stores:
+
+       maps:
+         cortex:
+           dir: /home/mvazque2/git/workflows/Cortex
+         ags:
+           dir: /home/mvazque2/git/workflows/AGS
+           read_only: true
+
+   Entries become instance-level maps on `CORTEX` (the global
+   `Path.path_maps` table is never modified) and may redefine `:lib`.
+   `read_only: true` maps are searched for reads and rejected as
+   `cortex_move` targets. Read order: `:chat` (anchor project, when
+   anchored), yaml maps in file order, then `:lib`, `:current`, `:user`.
+
+`Cortex.configure_cortex!` is idempotent and reconfigures on an anchor
+change; `Cortex.chat_anchor` returns the active anchor (nil when
+collapsed to the checkout).
 
 ## Resolution and ambiguity
 
@@ -85,6 +114,19 @@ actionable errors. A `.meta` sidecar in `briefs/.meta/` records the target
 agent and producing job. No prefix coupling: the brief name does not need
 to contain the agent name, and the legacy `var/cortex/<Agent>/<brief>`
 location is detected and reported.
+
+## Known environment limitation: property-step outputs under bwrap
+
+Property steps persist their JSON results under the Scout jobs tree. The
+default ComputerUse sandbox only mounts `~/.rbbt/var/jobs/{Cortex,Planned}`,
+so from inside that sandbox property-step JSON outputs are machine-readable
+but machine-unreachable (observed in the AGS pilot 2 audit; DEFECT-3 in
+`AGS/var/cortex/artifacts/pilot2/defects.md`). Mitigations, both supported
+without code changes:
+
+- mount the jobs path into the sandbox (exec task `read_paths`), or
+- read the receipt through a property: the `receipts` argument of
+  `cortex_property_read` resolves a job path and returns its JSON.
 
 ## Invariants (tested)
 

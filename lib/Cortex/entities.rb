@@ -110,14 +110,16 @@ module Cortex
     # task declarations, no require of workflow.rb).
     # ------------------------------------------------------------------
 
+    # Delegated to Cortex.path_maps so the entity engine follows the same
+    # anchor/yaml configuration as the rest of the workflow (historical
+    # duplicates kept Config-cached defaults that ignored a later anchor
+    # change and never consulted the yaml maps).
     def write_map
-      Scout::Config.get(%q{cortex}, %q{write_map}, default: :current).to_sym
+      Cortex.configured_write_map
     end
 
     def read_maps
-      maps = Scout::Config.get(%q{cortex}, %q{read_maps}, default: [:current, :user, :lib])
-      maps = maps.to_s.split(%q{,}).collect { |m| m.strip } unless Array === maps
-      maps.collect(&:to_sym)
+      Cortex.configured_read_maps
     end
 
     def map_tag(map, maps = nil)
@@ -564,13 +566,26 @@ module Cortex
     # evaluated at the definition file so syntax errors point at the .rb.
     def entity_body_proc(body, argument_names, path)
       params = (argument_names.collect { |n| n.to_s } +
-                %w(_cortex_definition _cortex_definition_version _cortex_definition_digest)).join(', ')
+                %w(_cortex_definition _cortex_definition_version _cortex_definition_digest entity)).join(', ')
       # The three hidden identity inputs are declared as ordinary inputs on
       # the task (with the ACTIVE definition's values as defaults), so they
       # reach the job normally and participate in cache identity.  The body
       # therefore also declares them as trailing parameters; it simply
       # ignores them.
-      source = "Proc.new do |#{params}|\n#{body}\nend"
+      # DEFECT-2: a bare Proc's `return` raises LocalJumpError once the
+      # defining method has returned (Step#exec calls the body later, from
+      # inside the job).  Wrap the author body in an inner lambda: `return`
+      # then returns from the lambda, which is the natural author intent.
+      # The outer Proc keeps splat arity so partial-input call paths behave
+      # exactly as before, and the lambda unpacks positionally, preserving
+      # the DEFECT-1 named-binding contract declared above.
+      source = "Proc.new do |*__cortex_inputs__|\n" \
+               "  __cortex_body__ = lambda do |*__cortex_args__|\n" \
+               "    #{params} = __cortex_args__\n" \
+               "#{body}\n" \
+               "  end\n" \
+               "  __cortex_body__.call(*__cortex_inputs__)\n" \
+               "end"
       begin
         eval(source, binding, path, 1)
       rescue SyntaxError => e

@@ -218,7 +218,9 @@ check('resource_paths keeps genuinely distinct maps distinct') do
   pairs = Cortex.resource_paths(:artifacts, ART2)
   dirs  = pairs.collect { |_path, map| File.dirname(File.dirname(Cortex.resource_path(:artifacts, ART2, map))) }.uniq
   raise "EXPECTED: 2 unique roots, got #{dirs.inspect}" unless dirs.length == pairs.length
-  raise "EXPECTED: wanted lib first, got #{pairs.inspect}" unless pairs.first.last == :lib
+  # Baseline order is [:lib, :current, :user]; from the Cortex checkout
+  # :lib and :current collapse (same physical dir) so :lib leads.
+  raise "EXPECTED: wanted #{Cortex.read_maps.first} first, got #{pairs.inspect}" unless pairs.first.last == Cortex.read_maps.first
   pairs
 end
 
@@ -324,6 +326,59 @@ check('listing never returns contents') do
   page = Cortex.listing_text('artifacts', 'probe/test/', 0, 50)
   raise 'EXPECTED: listing leaked content' if page.include?('SECRET-MARKER-123')
   page
+end
+
+
+
+# === DEFECT regression checks (appended by 2026-08-26 pass) ===
+
+# DEFECT-1 / DEFECT-2: property bodies bind declared arguments by name and
+# support early `return`. Uses a throwaway entity type so the live registry is
+# untouched.
+check('property bodies bind named arguments and allow early return') do
+  type = "D1Probe#{Time.now.to_i}"
+  res1 = Cortex.job(:cortex_property_define, type,
+                    entity_type: type, property: 'named_args',
+                    body: "{ treatment: treatment, timepoint: timepoint, entity: entity }",
+                    description: 'named argument binding regression',
+                    property_type: 'single', result_type: 'json',
+                    arguments: [{ 'name' => 'treatment' }, { 'name' => 'timepoint' }],
+                    test_entity: 'E2F1', test_arguments: { 'treatment' => 'DMSO', 'timepoint' => '1' }).exec
+
+  res2 = Cortex.job(:cortex_property_define, type,
+                    entity_type: type, property: 'early_return',
+                    body: "return { early: true } if entity == \"E2F1\"\n{ early: false }",
+                    description: 'early return regression',
+                    property_type: 'single', result_type: 'json',
+                    arguments: [],
+                    test_entity: 'E2F1').exec
+  # The smoke test ran each property inside define; verify the compiled
+  # module generation binds declared arguments by name (DEFECT-1) and allows
+  # an early `return` in the author body (DEFECT-2).
+  mod  = Cortex.load_entity_type(type)
+  ent  = mod.setup('E2F1')
+  got1 = ent.named_args('treatment' => 'DMSO', 'timepoint' => '1')
+  raise "NAMED: got #{got1.inspect}" unless got1[:treatment] == 'DMSO' && got1[:timepoint] == '1' && got1[:entity] == 'E2F1'
+  got2 = ent.early_return
+  raise "RETURN: got #{got2.inspect}" unless got2[:early] == true
+end
+
+# DEFECT-4: cortex_write keeps path/name routing under long multi-line content
+check('cortex_write path/name routing survives long multi-line content') do
+  long = (1..80).collect { |i| "line \#{i} " + ('x' * 60) } * "\n"
+  t = "F10Probe#{Time.now.to_i}"
+  Cortex.job(:cortex_write, t, path: 'scratch/f10_regression.md', content: long, mode: 'replace').exec
+  read = Cortex.job(:cortex_read, t, name: 'scratch/f10_regression.md', type: 'artifacts').exec
+  read = read.sub(/\A# lines [^\n]*\n/, '').sub(/\n\z/, '')
+  raise "ROUNDTRIP failed (#{read.length} vs #{long.length})" unless read == long
+
+  # Malformed use (content passed as path) must be rejected, not written
+  begin
+    Cortex.job(:cortex_write, t + 'b', path: long, content: 'x', mode: 'replace').exec
+    raise 'expected rejection for multi-line path'
+  rescue ScoutException
+    nil
+  end
 end
 
 # ---------------------------------------------------------------------

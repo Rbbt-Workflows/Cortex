@@ -12,9 +12,19 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
  }
  lib=lib {
   Cortex=Cortex{
+   artifacts.rb
+   briefs.rb
+   conversations.rb
    entities.rb
+   helpers.rb
+   listing.rb
+   path_maps.rb
+   storage.rb
    tasks=tasks{
+    artifact.rb
+    conversation.rb
     entity.rb
+    listing.rb
    }
   }
  }
