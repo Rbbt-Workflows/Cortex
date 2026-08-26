@@ -115,7 +115,7 @@ module Cortex
     end
 
     def read_maps
-      maps = Scout::Config.get(%q{cortex}, %q{read_maps}, default: [:lib, :current, :user])
+      maps = Scout::Config.get(%q{cortex}, %q{read_maps}, default: [:current, :user, :lib])
       maps = maps.to_s.split(%q{,}).collect { |m| m.strip } unless Array === maps
       maps.collect(&:to_sym)
     end

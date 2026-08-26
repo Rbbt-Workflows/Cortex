@@ -133,16 +133,19 @@ module Cortex
   input :description, :string, 'Candidate description (documentation only)', nil
   input :property_type, :select, 'Property arity: single entity, entity list, or both', nil, select_options: %w(single array both)
   input :result_type, :string, 'Scout result type (string, integer, float, array, tsv, json...)', 'text'
-  input :arguments, :json, 'Argument specs [{name,type,description,required,default}]', []
-  input :dependencies, :json, 'Same-entity property names this property depends on', []
+  input :arguments, :text, 'Argument specs in JSON [{name,type,description,required,default}]', []
+  input :dependencies, :array, 'Same-entity property names this property depends on', []
   input :test_entity, :string, 'Entity identifier for an optional smoke execution', nil
-  input :test_arguments, :json, 'Arguments for the smoke execution (JSON object)', {}
+  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}
   task :cortex_property_validate => :json do |entity_type, property, body, description,
                                               property_type, result_type, arguments,
                                               dependencies, test_entity, test_arguments|
     checks = []
     errors = []
     smoke  = nil
+
+    arguments = JSON.parse(arguments) if String === arguments
+    test_arguments = JSON.parse(test_arguments) if String === test_arguments
 
     active = begin
       Cortex.property_definition entity_type, property
@@ -231,14 +234,18 @@ module Cortex
   input :description, :string, 'Human-readable description (documentation only)', ''
   input :property_type, :select, 'Property arity: single entity, entity list, or both', 'single', select_options: %w(single array both)
   input :result_type, :string, 'Scout result type (string, integer, float, array, tsv, json...)', 'text'
-  input :arguments, :json, 'Argument specs [{name,type,description,required,default}]', []
-  input :dependencies, :json, 'Same-entity property names this property depends on', []
+  input :arguments, :text, 'Argument specs in JSON [{name,type,description,required,default}]', []
+  input :dependencies, :array, 'Same-entity property names this property depends on', []
   input :test_entity, :string, 'Entity identifier for a pre-activation smoke execution', nil
-  input :test_arguments, :json, 'Arguments for the smoke execution (JSON object)', {}
+  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}
   input :agent, :string, 'Agent name recorded in provenance', 'Cortex'
   task :cortex_property_define => :json do |entity_type, property, body, description,
                                             property_type, result_type, arguments,
                                             dependencies, test_entity, test_arguments, agent|
+
+    arguments = JSON.parse(arguments) if String === arguments
+    test_arguments = JSON.parse(test_arguments) if String === test_arguments
+
     res = Cortex.define_property(entity_type, property, body: body, description: description,
                                 property_type: property_type, result_type: result_type,
                                 arguments: arguments, dependencies: dependencies,
@@ -254,15 +261,19 @@ module Cortex
   input :description, :string, 'New description; omit to keep the current one', nil
   input :property_type, :select, 'Property arity: single, array, or both; omit to keep the current one', nil, select_options: %w(single array both)
   input :result_type, :string, 'Scout result type; omit to keep the current one', nil
-  input :arguments, :json, 'Argument specs; omit to keep the current ones', nil
-  input :dependencies, :json, 'Same-entity property names; omit to keep the current ones', nil
+  input :arguments, :text, 'Argument specs in JSON; omit to keep the current ones', nil
+  input :dependencies, :array, 'Same-entity property names; omit to keep the current ones', nil
   input :test_entity, :string, 'Entity identifier for a pre-activation smoke execution', nil
-  input :test_arguments, :json, 'Arguments for the smoke execution (JSON object)', {}
+  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}
   input :agent, :string, 'Agent name recorded in provenance', 'Cortex'
   task :cortex_property_update => :json do |entity_type, property, expected_version, body,
                                             description, property_type, result_type,
                                             arguments, dependencies, test_entity,
                                             test_arguments, agent|
+
+    arguments = JSON.parse(arguments) if String === arguments
+    test_arguments = JSON.parse(test_arguments) if String === test_arguments
+
     res = Cortex.update_property(entity_type, property, expected_version: expected_version,
                                  body: body, description: description,
                                  property_type: property_type, result_type: result_type,
@@ -290,8 +301,8 @@ module Cortex
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name', nil, required: true
   input :entity, :string, 'Entity identifier, or a JSON array of identifiers', nil, required: true
-  input :arguments, :json, 'Property arguments (JSON object, never positional)', {}
-  input :entity_options, :json, 'Entity annotation options (JSON object)', nil
+  input :arguments, :text, 'Property arguments (JSON object, never positional)', {}
+  input :entity_options, :text, 'Entity annotation options (JSON object)', nil
   input :update, :boolean, 'Clean the property job and recompute it', false
   task :cortex_entity_property => :json do |entity_type, property, entity, arguments,
                                             entity_options, update|
@@ -303,6 +314,8 @@ module Cortex
     rescue JSON::ParserError
       # plain identifier
     end
+
+    arguments = JSON.parse(arguments) if String === arguments
 
     # Read the definition BEFORE running: the run may repoint the loaded
     # generation (update: true cleans+recomputes against the active meta), and
