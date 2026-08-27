@@ -324,9 +324,15 @@ module Cortex
     raise ScoutException,
           "Entity property #{entity_type}/#{property} is not active" if defn.nil? || !defn['active']
 
-    job, result = Cortex.run_entity_property(entity_type: entity_type, property: property,
+
+    job, result = begin Cortex.run_entity_property(entity_type: entity_type, property: property,
                                              entity: entity, arguments: arguments || {},
                                              entity_options: entity_options, update: update)
+                  rescue ScoutException
+                    raise ScoutException
+                  rescue Exception
+                    raise ParameterException, "Property execution raised: #{$!.message}"
+                  end
 
     { entity_type: entity_type, entity: entity, property: property,
       arguments: arguments || {},
