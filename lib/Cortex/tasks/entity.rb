@@ -41,7 +41,7 @@ module Cortex
       rows = group.collect do |d|
         meta   = d[:meta]
         active = meta['active'] ? 'active' : 'inactive'
-        "  #{meta['entity_type']}/#{meta['property']}<#{d[:map]}>\t#{meta['version']}\t" \
+        "  #{meta['entity_type']}/#{meta['property']}\t#{d[:map]}\t#{meta['version']}\t" \
           "#{meta['digest'][0, 8]}\t#{meta['property_type']}\t#{meta['result_type']}\t" \
           "#{Array(meta['arguments']).length} args\t#{Array(meta['dependencies']).length} deps\t#{active}"
       end
@@ -53,7 +53,7 @@ module Cortex
              (prefix ? " (prefix #{prefix})" : '') +
              (include_inactive ? ' (including inactive)' : '')
     text = [header] + sections.collect do |type, rows|
-      ["#{type}", "#type/property\tversion\tdigest\tproperty_type\tresult_type\targs\tdeps\tstatus", *rows]
+      ["#{type}", "#type/property\tmap\tversion\tdigest\tproperty_type\tresult_type\targs\tdeps\tstatus", *rows]
     end
     next_offset = offset.to_i + page.length
     text << ["# next: #{next_offset}"] if next_offset < total

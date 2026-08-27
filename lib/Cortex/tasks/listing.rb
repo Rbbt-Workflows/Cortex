@@ -31,7 +31,8 @@ module Cortex
     if rows.empty?
       "No matches for #{query.inspect}"
     else
-      (['#type' + "\t" + 'name' + "\t" + 'match'] + rows.collect { |r| r * "\t" }) * "\n" + "\n"
+      (['#type' + "\t" + 'name' + "\t" + 'map' + "\t" + 'match'] +
+       rows.collect { |r| r * "\t" }) * "\n" + "\n"
     end
   end
 

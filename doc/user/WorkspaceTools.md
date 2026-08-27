@@ -83,19 +83,20 @@ cortex_list(type: "all", prefix: "", offset: 0, limit: 50)
 - `offset` / `limit`: pagination. The section header reports
   `<shown>/<total> entries` and, when more exist, `(more: offset=N)`.
 
-Output shape (path map shown only when a name exists in more than one
-readable map):
+Output shape (the path map is always its own `map` column, right after
+`#name`; the `name` column holds the clean logical name, so an entry
+existing in several maps simply appears once per map):
 
 ```
 conversations\t1 entry
-  #name\tmessages\tbytes\tmtime
-  Summing\t14\t34578\t2026-08-24 23:10
+  #name\tmap\tmessages\tbytes\tmtime
+  Summing\tcurrent\t14\t34578\t2026-08-24 23:10
 briefs\t1 entry
-  #name\tmessages\tbytes\tmtime
-  bash-math\t3\t391\t2026-08-24 23:09
+  #name\tmap\tmessages\tbytes\tmtime
+  bash-math\tcurrent\t3\t391\t2026-08-24 23:09
 artifacts\t1 entry
-  #name\tbytes\tmtime
-  summing/answer.md\t278\t2026-08-24 23:10
+  #name\tmap\tbytes\tmtime
+  summing/answer.md\tcurrent\t278\t2026-08-24 23:10
 ```
 
 ## `cortex_search`  -  find material by content
@@ -112,8 +113,8 @@ cortex_search(query:, type: "all", limit: 20)
   implicit expansion).
 - `limit`: maximum number of matches.
 
-Returns compact snippets (`#type\tname\tsnippet`), not full evidence. Read
-the resource for the full context.
+Returns compact snippets (`#type\tname\tmap\tsnippet`), not full evidence.
+Read the resource for the full context.
 
 ## `cortex_read`  -  bounded read
 

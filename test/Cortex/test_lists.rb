@@ -35,6 +35,10 @@ class TestCortexLists < Test::Unit::TestCase
 
     @old_anchor = ENV['SCOUT_CHAT_DIR']
     @old_pwd = Dir.pwd
+    # :current is PWD-based and Scout's default write map: run from the
+    # scratch anchor project so writes never land in the live var/cortex
+    # (and :current/:lib collapse on the same directory).
+    Dir.chdir(@proj_a)
     ENV['SCOUT_CHAT_DIR'] = @proj_a
     Cortex.reset_cortex!
     Cortex.configure_cortex!
@@ -63,7 +67,8 @@ class TestCortexLists < Test::Unit::TestCase
     entities, meta, found, map, _all = Cortex.read_list('TF', 'C01')
     assert_equal %w(TP53 MYC MYCN IRF3), entities
     assert_equal found, path
-    assert_equal :chat, map
+    # :current (== :lib here, same directory) is searched first
+    assert_equal :current, map
     assert_equal 'TF', meta['entity_type']
     assert_equal 'pilot core', meta['description']
     assert_equal({ 'organism' => 'Hsa' }, meta['entity_options'])
@@ -122,7 +127,8 @@ class TestCortexLists < Test::Unit::TestCase
     entities, meta, _path, map, _all = Cortex.read_list('TF', 'raw')
     assert_equal %w(MYC), entities
     assert_equal({}, meta)
-    assert_equal :chat, map
+    # :current (== :lib here, same directory) is searched first
+    assert_equal :current, map
   end
 
   def test_lists_in_namespace_listing

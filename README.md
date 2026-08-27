@@ -65,18 +65,29 @@ followed by `.find`, which traverses every readable map in order (so an
 element present only in a secondary map is still found, at any nesting
 depth). First match wins.
 
-- With an anchor (Scout-AI sets `SCOUT_CHAT_DIR` to the libdir of the chat
-  being executed, so the anchor propagates into job subprocesses) the
-  anchor project becomes map `:chat`: `CORTEX.libdir` points at the anchor
-  project, writes default to `:chat`, and reads search `:chat` plus
-  `:lib`, `:current`, `:user`. When `SCOUT_CHAT_DIR` is absent the PWD is
-  used as the anchor instead; it feeds the same `:chat` map (no extra
-  synonym is introduced, even though its directory then coincides with
-  `:current`) and is what locates `cortex_path_map.yaml`.
-- Only when neither an ENV anchor nor a usable PWD exists does Cortex run
-  unanchored, with the historical read order `:lib`, `:current`, `:user`
-  and write map `:current`. `Scout::Config` keys `cortex.write_map` and
-  `cortex.read_maps` override both in every mode.
+Cortex never introduces a map of its own: it only pins
+`CORTEX.libdir` (which `:lib` resolves from) and locates
+`cortex_path_map.yaml`.
+
+- `:current` — `{PWD}/var/cortex/...`, Scout's own semantics. It is never
+  overridden by Cortex and is always the default write map. Note that
+  under `exec`/bwrap job execution the process PWD is the workflow
+  checkout root, not the chat dir, so with a foreign chat anchor
+  `:current` is the workflow checkout's store and `:lib` is the chat
+  repo's store; `:current` is still searched first.
+- `:lib` — the library store, `{LIBDIR}/var/cortex/...`. `LIBDIR` is the
+  chat anchor when Scout-AI sets `SCOUT_CHAT_DIR` (the libdir of the chat
+  being executed, inherited by job subprocesses). When `SCOUT_CHAT_DIR`
+  is absent the anchor falls back to the repository containing the PWD
+  (marker-based climb, so a subdirectory still resolves its project) and
+  is nil-safe: a PWD inside no repository leaves `:lib` with Scout's lazy
+  semantics. From a repository root `:current` and `:lib` collapse onto
+  the same directory; from a subdirectory they diverge (`:current` = the
+  subdirectory store, `:lib` = the repository store).
+- Read order: `[:current, :lib, :user]`, then the yaml-defined maps (below)
+  in file order, then the rest of Scout's base `Path.map_order` table.
+  `Scout::Config` keys `cortex.write_map` and `cortex.read_maps` override
+  the write map and the read order in every mode.
 
 Additional maps come from a per-project `cortex_path_map.yaml` (project
 root or `etc/`), which attaches other projects' cortex stores to this
@@ -96,7 +107,7 @@ touch the global `Path.path_maps` table. Entries can redefine `:lib` and
 introduce any number of new maps. `read_only: true` marks a map that is
 searched for reads but rejected as a `cortex_move` target, so shared
 stores can be consumed without being modified. Yaml maps are searched
-after `:chat` and before the defaults (`:lib`, `:current`, `:user`).
+after `[:current, :lib, :user]` and before the rest of the base hierarchy.
 
 When the same logical name exists in more than one map, reads resolve
 deterministically to the first map but say so explicitly, and listings
@@ -220,8 +231,10 @@ List workspace namespaces with metadata only
 Lists `conversations`, `briefs`, `artifacts`, `entities`, `lists`, or
 `all`, showing name, size, mtime (and message count for chats). Contents
 are never returned.
-Dot-directories are hidden. Names present in more than one readable path
-map are tagged with their map. Supports `offset`/`limit` pagination; the
+Dot-directories are hidden. The path map of each entry is reported in its
+own `map` column (right after `#name`), so the `name` column always holds
+the clean logical name; an entry present in several maps appears once per
+map. Supports `offset`/`limit` pagination; the
 section header reports shown/total entries and the footer reports the
 next offset when more exist. Use `cortex_read` for content and
 `cortex_search` to find material by keyword.
@@ -232,8 +245,8 @@ Lexically search conversation, brief, and artifact contents
 Case-insensitive search over chat messages, artifact and entity-list
 file contents across all readable path maps. Single-term queries use substring match;
 multi-term queries require every term (AND). Returns compact matches
-with short snippets (~200 chars) only, never whole files; hits whose
-name exists in more than one path map carry the map tag. Raise the limit
+with short snippets (~200 chars) only, never whole files; the path map of
+each hit is reported in its own `map` column. Raise the limit
 or use `cortex_read` for more.
 
 ## cortex_read
@@ -324,9 +337,9 @@ the path map — the two stay distinct.
 ## cortex_property_list
 List entity property definitions with versions and digests
 
-Grouped by entity type; each row gives the property name, active version,
-short digest, arity (`single`/`array`/`both`), result type, argument and
-dependency counts, and active flag. `include_inactive` also shows
+Grouped by entity type; each row gives the property name, its path map,
+active version, short digest, arity (`single`/`array`/`both`), result
+type, argument and dependency counts, and active flag. `include_inactive` also shows
 tombstoned (removed) properties with their last version. `prefix` filters
 by property name; `offset`/`limit` paginate. Definitions are executable
 code, so ambiguity across path maps is an error here, not a warning.

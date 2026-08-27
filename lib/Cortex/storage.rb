@@ -205,8 +205,9 @@ module Cortex
     out
   end
 
-  # Names present in more than one readable map: listing/search tag these
-  # with their map so the ambiguity stays visible.
+  # Names present in more than one readable map: listing/search report the
+  # map of every entry in a dedicated column, so these are simply the names
+  # that occupy more than one row.
   def self.ambiguous_names(namespace, maps = nil)
     candidates = namespace_entries(namespace, maps).collect(&:first).uniq
     candidates.select do |name|

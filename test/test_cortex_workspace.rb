@@ -51,16 +51,38 @@ def purge
       end
     end
   end
-  # drop empty sandbox parents
+  # drop empty sandbox parents (artifacts and conversations alike)
   Cortex.read_maps.each do |m|
-    dir = Cortex.namespace_dir(:artifacts, m) + '/probe'
-    Dir.rmdir(dir + '/test') rescue nil
-    Dir.rmdir(dir) rescue nil
+    a = Cortex.namespace_dir(:artifacts, m) + '/probe'
+    Dir.rmdir(a + '/test') rescue nil
+    Dir.rmdir(a) rescue nil
+    c = Cortex.namespace_dir(:conversations, m) + '/probe'
+    Dir.rmdir(c + '/test') rescue nil
+    Dir.rmdir(c) rescue nil
   end
 end
 
 purge
-at_exit { purge }
+
+# Remove an entity type created by this suite: body dir + .meta + .history,
+# across every read map plus the write map. Tightly scoped to the given name.
+def purge_entity_type(type)
+  return unless type.to_s =~ /\A[A-Z][A-Za-z0-9]*\z/
+  (Cortex.read_maps + [Cortex.write_map]).uniq.each do |m|
+    base = Cortex.namespace_dir(:entities, m)
+    next unless base
+    [File.join(base.to_s, type),
+     File.join(base.to_s, '.meta', type),
+     File.join(base.to_s, '.history', type)].each do |d|
+      FileUtils.rm_rf(d) if File.directory?(d)
+    end
+  end
+end
+
+at_exit do
+  ($entity_types || []).compact.each { |t| purge_entity_type(t) }
+  purge
+end
 
 def make_conversation(name, msg)
   chat = Chat.setup([])
@@ -73,6 +95,10 @@ def make_conversation(name, msg)
 end
 
 make_conversation(CONV, 'zebra crossing note')
+# Sandbox entity types / scratch artifacts created by the DEFECT checks
+# below; purged at exit so a live run leaves the store exactly as found.
+$entity_types = []
+$scratch_arts = []
 Cortex.write_artifact(ART, "alpha beta\nsecond line\nthird line\n", :replace, job: 'test', agent: 'tester')
 raise 'test contamination: original artifact lost' unless Open.read(Cortex.resource_path(:artifacts, ART, Cortex.write_map)).include?('second line')
 
@@ -205,11 +231,11 @@ end
 # lib == current, so we exercise the dedupe/ambiguity logic instead)
 # ---------------------------------------------------------------------
 check('resource_paths dedupes maps that resolve to the same dir') do
-  # From the scout-ai libdir the session runs anchored: :chat and :current
-  # both resolve to the anchor project, so asking for exactly those two maps
-  # must collapse to a single physical path.  (When unanchored, :lib and
-  # :current play the same role.)
-  dup_pair = %i(chat current lib).each_cons(2).map { |a,b| [a,b] }.
+  # Under the current path-map contract :lib is the repo store and :current
+  # is the PWD store; from the repo root (or any anchored repo session) the
+  # two resolve to the SAME physical directory, so asking for exactly those
+  # two maps must collapse to a single physical path.
+  dup_pair = %i(current lib).each_cons(2).map { |a,b| [a,b] }.
     find { |a,b| Cortex.resource_path(:artifacts, ART2, a) == Cortex.resource_path(:artifacts, ART2, b) }
   raise 'PRECONDITION failed: no two maps share a directory' unless dup_pair
   pairs = Cortex.resource_paths(:artifacts, ART2, dup_pair)
@@ -239,13 +265,22 @@ check('legacy :current data is listable/readable/searchable') do
   # Self-contained: create the legacy fixture in :current first instead of
   # depending on live workspace data that may have been cleaned up.
   fixture = 'probe/test/legacy'
-  make_conversation(fixture, 'bash legacy fixture note')
+  # Runtime-unique token: any fixed word shows up in the live session
+  # conversations sooner or later (e.g. once this suite's own history
+  # mentions it) and starves the bounded search of the fixture again.
+  token = "probe#{Time.now.to_i}#{rand(10_000)}"
+  make_conversation(fixture, "#{token} fixture note")
+
   begin
     names = Cortex.namespace_names(:conversations, :current)
     raise 'EXPECTED: :current conversations not enumerable' unless names.any? { |n| n == fixture }
     list = Cortex.listing_text('conversations', nil, 0, 50)
     raise 'EXPECTED: legacy conversation missing from listing' unless list.include?(fixture)
-    hits = Cortex.search_conversations('bash', 'conversations', 10)
+    # Search the runtime-unique token; a fixed common term is usually
+    # exhausted by the live session conversations before the fixture is
+    # reached (the search stops at `limit` hits).
+    hits = Cortex.search_conversations(token, 'conversations', 10)
+
     raise "EXPECTED: legacy conversation not searchable #{hits.inspect[0, 80]}" unless hits.any? { |t, n, _| n == fixture }
     hits
   ensure
@@ -366,6 +401,8 @@ check('property bodies bind named arguments and allow early return') do
   raise "NAMED: got #{got1.inspect}" unless got1[:treatment] == 'DMSO' && got1[:timepoint] == '1' && got1[:entity] == 'E2F1'
   got2 = ent.early_return
   raise "RETURN: got #{got2.inspect}" unless got2[:early] == true
+ensure
+  purge_entity_type(type)
 end
 
 # DEFECT-4: cortex_write keeps path/name routing under long multi-line content
@@ -375,6 +412,7 @@ check('cortex_write path/name routing survives long multi-line content') do
   # Unique path: the historical one exists in a second path map, which makes
   # cortex_read prefix a cross-map [note] line and break the byte comparison.
   art = "scratch/f10_regression_#{t}.md"
+  $scratch_arts << art
   Cortex.job(:cortex_write, t, path: art, content: long, mode: 'replace').exec
   read = Cortex.job(:cortex_read, t, name: art, type: 'artifacts').exec
   read = read.sub(/\A# lines [^\n]*\n/, '').sub(/\n\z/, '')
@@ -386,6 +424,15 @@ check('cortex_write path/name routing survives long multi-line content') do
     raise 'expected rejection for multi-line path'
   rescue ScoutException
     nil
+  end
+ensure
+  $scratch_arts.each do |a|
+    Cortex.resource_paths(:artifacts, a).each { |p, _m| Open.rm_rf(p) if File.exist?(p) }
+  end
+  # drop the empty scratch/ parent when this was the last file in it
+  Cortex.read_maps.each do |m|
+    dir = Cortex.namespace_dir(:artifacts, m) + '/scratch'
+    Dir.rmdir(dir) rescue nil
   end
 end
 

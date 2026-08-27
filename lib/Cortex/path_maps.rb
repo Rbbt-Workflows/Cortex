@@ -25,20 +25,27 @@ require_relative 'storage'
 #    LLM.chat); ENV propagates into exec/bwrap job subprocesses, which a
 #    PWD-based anchor could not do (PWD under exec is the workflow's own
 #    directory).  When SCOUT_CHAT_DIR is absent, Dir.pwd is used as the
-#    anchor instead: no new map name is introduced (the anchor simply feeds
-#    the SAME :chat map, whose directory then coincides with what :current
-#    would resolve to), but it still locates cortex_path_map.yaml and keeps
-#    the resolution deterministic.  Scout::Config may pin the anchor for
+#    anchor instead.  The anchor never introduces a map of its own: it only
+#    sets CORTEX.libdir (so :lib = {LIBDIR}/... resolves to the chat repo)
+#    and locates cortex_path_map.yaml.  Scout::Config may pin the anchor for
 #    tests and explicit overrides (config key `cortex.chat_dir`).
 #
 # 2. CORTEX CONFIGURATION: the first time any path map is needed,
 #    configure_cortex! gives CORTEX a libdir (the anchor), instance-level
 #    path_maps (a private copy of Path.path_maps -- the global table is
-#    never mutated) and an instance map_order such that:
-#      :chat  -> {LIBDIR}/{TOPLEVEL}/{SUBPATH} with LIBDIR = the anchor project
-#      :lib   -> pinned to the Cortex checkout template       (shared store)
-#    and, when an anchor is present, the map_order BEGINS with :chat so a
-#    plain .find finds the invoking project's copy first.
+#    never mutated) and an instance map_order built from Scout's own map
+#    table:
+#      :current -> {PWD}/{TOPLEVEL}/{SUBPATH}   (NEVER overridden; default
+#                  write map.  PWD caveat: under exec/bwrap the job PWD is
+#                  the workflow root, not the chat dir, so with a foreign
+#                  chat anchor :current = the workflow checkout's store and
+#                  :lib = the chat repo's store; :current is searched
+#                  first.)
+#      :lib     -> {LIBDIR}/{TOPLEVEL}/{SUBPATH} with LIBDIR = the anchor
+#                  project (the library store)
+#      :user    -> the per-user home store (read-only)
+#    The head of the map_order is therefore [:current, :lib, :user], which
+#    is also the head of Scout's own Path.map_order for :current/:user.
 #
 # 3. PER-PROJECT EXTRA MAPS: if the anchor project carries a
 #    cortex_path_map.yaml (project root first, then etc/), every entry
@@ -53,10 +60,10 @@ require_relative 'storage'
 #          lib:                      # optional: redefine :lib itself
 #            dir: /home/mvazque2/git/workflows/Cortex
 #
-#    Read traversal order becomes [:chat (when anchored), configured maps in
-#    yaml order, then :lib, :current, :user]; read_only maps are readable
-#    but rejected as move/write targets. Without an anchor every map keeps
-#    its historical template and behaviour is unchanged.
+#    Read traversal order becomes [:current, :lib, :user, configured maps in
+#    yaml order, then the rest of Scout's base Path.map_order table minus
+#    :default]; read_only maps are readable but rejected as move/write
+#    targets.
 
 module Cortex
 
@@ -68,17 +75,36 @@ module Cortex
 
   # Libdir of the project the chat belongs to.  SCOUT_CHAT_DIR (set by
   # scout-ai, inherited by job subprocesses) wins, then the config key,
-  # then Dir.pwd.  Always a concrete directory; nil only when nothing
-  # usable is found.
+  # then the repo containing Dir.pwd.  The PWD fallback CLIMBS to the
+  # repository root (marker-based: lib/, bin/ or README.md), so running
+  # from a subdirectory still resolves the project the way the anchored
+  # case does -- `:lib` is the repo store and cortex_path_map.yaml is
+  # found at the repo root.  From a repo root :current and :lib collapse
+  # on the same directory; from a subdir they diverge (:current = the
+  # subdir store, :lib = the repo store).  A PWD inside no repo leaves the
+  # anchor unset (nil): CORTEX.libdir is not pinned and :lib keeps Scout's
+  # lazy semantics.
   def self.chat_anchor
     @@chat_anchor ||= begin
                         anchor = ENV['SCOUT_CHAT_DIR']
                         anchor ||= Scout::Config.get('chat_dir', 'cortex', env: 'SCOUT_CHAT_DIR')
-                        anchor ||= Dir.pwd if Dir.pwd && Dir.pwd != '/'
-                        return nil if anchor.nil? || anchor.to_s.empty?
+                        if anchor.nil? || anchor.to_s.empty?
+                          return nil if Dir.pwd.nil? || Dir.pwd == '/'
+                          # Explicit file argument => caller frames are never
+                          # consulted (see Path.caller_file): the climb below is
+                          # pure path analysis, stable under `scout task`.
+                          # Nil-safe: no repo around the PWD (the marker
+                          # climb only reaches '/', whose bin/ is guarded
+                          # below) keeps the anchor unset.
+                          repo = Path.caller_lib_dir(Dir.pwd)
+                          # `return` (not a local assignment) so the memo
+                          # `||=` does NOT cache a nil anchor as configured.
+                          return nil if repo.nil? || repo.to_s == '/'
+                          anchor = repo
+                        end
                         anchor = File.expand_path(anchor.to_s)
-                        # Marker-based climbs can overshoot to '/' (a bare dir has a lib/ marker
-                        # at the filesystem root); guard it explicitly.
+                        # Defensive: a climb may still land on '/' (the
+                        # filesystem root has a bin/ marker); reject it.
                         return nil if anchor == '/'
                         anchor
                       end
@@ -100,10 +126,6 @@ module Cortex
     CORTEX.libdir
   end
 
-  # Idempotent: installs libdir + instance path_maps + map_order on CORTEX
-  # and loads the anchor project's cortex_path_map.yaml if present. Safe to
-  # call from any map lookup; runs at most once per anchor (re-running with
-  # a different anchor re-configures, which keeps tests hermetic).
   # Forget the memoized anchor and configuration.  Tests (and any nested
   # re-anchoring) use this to force reconfiguration after changing
   # SCOUT_CHAT_DIR or the PWD.
@@ -112,12 +134,17 @@ module Cortex
     @@configured = nil
     @@path_map_config = nil
     CONFIGURED_READ_ONLY_MAPS.clear
-    # Drop any anchor map installed by a previous in-process configuration;
-    # the fresh configure_cortex! decides whether :chat exists at all.
-    CORTEX.path_maps.delete(:chat) if CORTEX.path_maps.include?(:chat)
+    # Also drop any pinned libdir: @@configured == nil == anchor makes
+    # configure_cortex! short-circuit on the next call, so the pin must be
+    # cleared here for :lib to fall back to Scout's lazy resolution.
+    CORTEX.libdir = nil
     CORTEX
   end
 
+  # Idempotent: installs libdir + instance path_maps + map_order on CORTEX
+  # and loads the anchor project's cortex_path_map.yaml if present. Safe to
+  # call from any map lookup; runs at most once per anchor (re-running with
+  # a different anchor re-configures, which keeps tests hermetic).
   def self.configure_cortex!
     anchor = chat_anchor
     return CORTEX if @@configured == anchor
@@ -125,21 +152,17 @@ module Cortex
     maps = Path.path_maps.dup
 
     if anchor
-      # :chat is the anchor project's own cortex dir; :current follows the
-      # anchor (instead of the lazy CWD-based template) so that writes land
-      # in the invoking project; :lib is pinned absolutely to the Cortex
-      # checkout template so it is never stack-dependent again.
-      maps[:chat] = '{LIBDIR}/{TOPLEVEL}/{SUBPATH}'
-      maps[:current] = '{LIBDIR}/{TOPLEVEL}/{SUBPATH}'
-      maps[:lib] = cortex_checkout_template
-
+      # The anchor only sets CORTEX.libdir: :lib then resolves to
+      # {LIBDIR}/... = the chat project's own cortex store, deterministically
+      # instead of lazily from the Ruby stack.  :current keeps Scout's own
+      # {PWD} template (never overridden) and stays the default write map.
       CORTEX.libdir = anchor
     else
-      # Unanchored: there is no anchor project, so no :chat map and no
-      # :current override.  :lib keeps its historical (Cortex checkout)
-      # template and :current stays the CWD-based one.
-      maps.delete(:chat)
-      maps[:lib] = cortex_checkout_template
+      # Re-configure without an anchor (tests, nested in-process use) must
+      # drop any previously pinned libdir, otherwise :lib keeps pointing at
+      # the previous chat project instead of Scout's lazy caller-lib
+      # resolution.
+      CORTEX.libdir = nil
     end
 
     # Rebuild the configured read-only list from scratch on every
@@ -156,40 +179,27 @@ module Cortex
       CONFIGURED_READ_ONLY_MAPS << name.to_sym if spec['read_only'].to_s == 'true'
     end
 
-    maps.delete(:chat) unless anchor
-    # A previous in-process configuration (tests, nested use) may have
-    # installed an anchor map; when unanchored there is no anchor, so drop
-    # it.  Scout::CORTEX reuses the same object as Path.path_maps in some
-    # load orders, hence the delete before assignment.
     CORTEX.path_maps = maps
-    CORTEX.path_maps.delete(:chat) unless anchor
-    CORTEX.map_order = default_map_order(yaml, !anchor.nil?)
+    CORTEX.map_order = default_map_order(yaml)
 
     @@configured = anchor
     @@path_map_config = yaml
     CORTEX
   end
 
-  # Instance map order: the anchor map first (when anchored), then the
-  # yaml-configured maps in declaration order (minus :lib, which keeps its
-  # historical tail position), then the historical tail :lib, :current,
-  # :user.  A plain .find on CORTEX[ns][name] therefore traverses every
+  # Instance map order: the head [:current, :lib, :user] (:lib is the chat
+  # project's store, :current the PWD one, never overridden), then the
+  # yaml-configured maps in declaration order (a yaml `lib:` redefinition
+  # only changes the :lib TEMPLATE, not its position, hence it is excluded
+  # from extras), then the rest of Scout's base Path.map_order table minus
+  # :default.  A plain .find on CORTEX[ns][name] therefore traverses every
   # configured location in exactly this order.
   def self.default_map_order(yaml = nil, anchored = nil)
-    anchored = !chat_anchor.nil? if anchored.nil?
     yaml ||= (@@path_map_config || {})
-    extra = yaml.keys - ['lib']
-    order = []
-    order << :chat if anchored
-    order += extra.collect(&:to_sym)
-    order + [:current, :user, :lib]
-  end
-
-  # Absolute template for the shared Cortex store: the directory containing
-  # THIS file is <checkout>/lib/Cortex/path_maps.rb.
-  def self.cortex_checkout_template
-    File.join(File.dirname(File.dirname(File.dirname(File.expand_path(__FILE__)))),
-              '{TOPLEVEL}/{SUBPATH}')
+    extra = (yaml.keys - ['lib']).collect(&:to_sym)
+    head  = [:current, :lib, :user]
+    tail  = Path.map_order - head - extra - [:default]
+    head + extra + tail
   end
 
   # Read (and memoize) the anchor project's cortex_path_map.yaml.

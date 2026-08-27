@@ -39,12 +39,15 @@ Convenience accessors (`conversation_path`, `brief_path`, `artifact_path`,
 1. **Anchor.** `SCOUT_CHAT_DIR` (set by Scout-AI to the libdir of the chat
    being executed; inherited by job subprocesses, including the ComputerUse
    bwrap sandbox), the `Scout::Config` key `cortex.chat_dir`, or, when
-   neither is present, `Dir.pwd`. The PWD fallback deliberately feeds the
-   same `:chat` map instead of introducing a `:pwd`/`:current` synonym: it
-   only anchors discovery (`cortex_path_map.yaml`, libdir, write map).
-   Only when no usable anchor exists at all (no ENV, no config, PWD `/`)
-   do maps collapse to the checkout: `:lib`, `:current`, `:user`, write
-   `:current`.
+   neither is present, the repository containing `Dir.pwd` (a marker-based
+   climb to the project root, so a subdirectory still resolves its
+   project; nil-safe when the PWD is inside no repository). The anchor
+   only pins `CORTEX.libdir` and locates `cortex_path_map.yaml` — it
+   introduces no map of its own. `:current` keeps Scout's own semantics
+   (`{PWD}/...`, never overridden, default write map), and `:lib` is
+   `{LIBDIR}/...`: from a repository root the two collapse onto the same
+   directory, from a subdirectory they diverge (`:current` = the
+   subdirectory store, `:lib` = the repository store).
 2. **yaml maps.** `cortex_path_map.yaml` (project root, then `etc/`)
    attaches other projects' cortex stores:
 
@@ -58,8 +61,8 @@ Convenience accessors (`conversation_path`, `brief_path`, `artifact_path`,
    Entries become instance-level maps on `CORTEX` (the global
    `Path.path_maps` table is never modified) and may redefine `:lib`.
    `read_only: true` maps are searched for reads and rejected as
-   `cortex_move` targets. Read order: `:chat` (anchor project, when
-   anchored), yaml maps in file order, then `:lib`, `:current`, `:user`.
+   `cortex_move` targets. Read order: `[:current, :lib, :user]`, yaml maps
+   in file order, then the rest of Scout's base `Path.map_order` table.
 
 `Cortex.configure_cortex!` is idempotent and reconfigures on an anchor
 change; `Cortex.chat_anchor` returns the active anchor (nil when
@@ -76,10 +79,11 @@ are arbitrary-depth relative paths.
 
 `resource_paths` deduplicates maps that resolve to the same physical
 directory (in this checkout `:lib` and `:current` coincide, so legacy data
-is seen exactly once). Reads resolve in `read_maps` order (`:chat` first
-when anchored); when a name exists in two *different* physical locations,
+is seen exactly once). Reads resolve in `read_maps` order (`:current`
+first); when a name exists in two *different* physical locations,
 reads resolve to the first map and report the ambiguity, and
-`cortex_list` / `cortex_search` tag such names with `:map` suffixes.
+`cortex_list` / `cortex_search` report the map in its own `map` column
+(the `name` column stays the clean logical name).
 
 ## Entity lists
 

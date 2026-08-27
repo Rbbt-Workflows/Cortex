@@ -11,6 +11,7 @@ require File.expand_path(__FILE__).sub(%r(/test/.*), '/test/test_helper.rb')
 
 require 'scout'
 require 'fileutils'
+require 'tmpdir'
 require 'Cortex/path_maps'
 require 'Cortex/storage'
 
@@ -26,6 +27,12 @@ class TestCortexPathMaps < Test::Unit::TestCase
 
     @old_anchor = ENV['SCOUT_CHAT_DIR']
     @old_pwd = Dir.pwd
+    # projA is a scratch repo root: the marker the PWD-fallback anchor climb
+    # looks for (lib/, bin/ or README.md), like a real checkout.
+    FileUtils.touch(File.join(@proj_a, 'README.md'))
+    # Writes must never land in the live var/cortex: :current is PWD-based
+    # and Scout's default write map, so run from the scratch project.
+    Dir.chdir(@proj_a)
     ENV.delete('SCOUT_CHAT_DIR')
     FileUtils.rm_rf(File.join(@proj_a, 'cortex_path_map.yaml'))
   end
@@ -53,10 +60,16 @@ class TestCortexPathMaps < Test::Unit::TestCase
   # ------------------------------------------------------------------
 
   def test_anchor_from_env_wins
+    Dir.chdir(@proj_b)
     ENV['SCOUT_CHAT_DIR'] = @proj_a
     Cortex.reset_cortex!
     assert_equal @proj_a, Cortex.chat_anchor
     assert_equal @proj_a, Cortex.cortex_libdir
+    # :lib follows the anchor, :current follows the (different) PWD
+    assert_equal File.join(@proj_a, 'var', 'cortex', 'artifacts'),
+                 Cortex::CORTEX[:artifacts].follow(:lib).to_s
+    assert_equal File.join(@proj_b, 'var', 'cortex', 'artifacts'),
+                 Cortex::CORTEX[:artifacts].follow(:current).to_s
   end
 
   def test_pwd_fallback_anchor_without_synonym
@@ -64,16 +77,75 @@ class TestCortexPathMaps < Test::Unit::TestCase
     Cortex.reset_cortex!
     assert_equal @proj_a, Cortex.chat_anchor
     assert !Cortex.map_names.include?(:pwd), 'must not introduce a :pwd synonym'
-    assert Cortex.map?(:chat)
+    # With no env anchor the PWD (a repo root here) becomes the anchor:
+    # :lib == :current == {PWD}/var/cortex (identical dirs dedupe), no
+    # :chat map exists.
+    assert !Cortex.map?(:chat)
     assert_equal File.join(@proj_a, 'var', 'cortex'),
-                 Cortex::CORTEX[:artifacts].follow(:chat).to_s.sub(/\/artifacts$/, '')
+                 Cortex::CORTEX[:artifacts].follow(:lib).to_s.sub(/\/artifacts$/, '')
+    assert_equal File.join(@proj_a, 'var', 'cortex'),
+                 Cortex::CORTEX[:artifacts].follow(:current).to_s.sub(/\/artifacts$/, '')
   end
 
   def test_anchor_root_rejected
+    Dir.chdir(@proj_b)
     ENV['SCOUT_CHAT_DIR'] = '/'
     Cortex.reset_cortex!
     assert_equal nil, Cortex.chat_anchor
     assert !Cortex.map?(:chat)
+    # Unanchored (nil anchor): :lib is never pinned, neither to the scratch
+    # project nor to the Cortex checkout.
+    assert !Cortex::CORTEX.libdir.to_s.include?(File.basename(@scratch))
+  end
+
+  # ------------------------------------------------------------------
+  # unanchored PWD fallback climbs to the repo containing the PWD (N1)
+  # ------------------------------------------------------------------
+
+  def test_unanchored_pwd_in_repo_subdir_resolves_lib_to_repo_root
+    subdir = File.join(@proj_a, 'sandbox', 'pilot6')
+    FileUtils.mkdir_p(subdir)
+    # The scratch area must be free of repo markers so the climb cannot stop
+    # at scratch/ or above; projA is the only marked root in play.
+    FileUtils.rm_rf(File.join(subdir, 'lib'))
+    # projA is marked as a repo root by its README.md (like a real checkout);
+    # a subdir has none of the markers, so the climb must reach projA.
+    FileUtils.touch(File.join(@proj_a, 'README.md'))
+    Dir.chdir(subdir)
+    Cortex.reset_cortex!
+    assert_equal @proj_a, Cortex.chat_anchor
+    assert_equal @proj_a, Cortex.cortex_libdir
+    # :lib = repo store (readable), :current = subdir store (usually empty):
+    # they diverge, and read order keeps :current first.
+    lib_store = Cortex::CORTEX[:artifacts].follow(:lib).to_s.sub(%r{/artifacts$}, '')
+    cur_store = Cortex::CORTEX[:artifacts].follow(:current).to_s.sub(%r{/artifacts$}, '')
+    assert_equal File.join(@proj_a, 'var', 'cortex'), lib_store
+    assert_equal File.join(subdir, 'var', 'cortex'), cur_store
+    assert_equal :current, Cortex.map_order.first
+    assert Cortex.map_order.include?(:lib)
+  end
+
+  def test_unanchored_pwd_in_plain_dir_keeps_pwd_anchor
+    # The scratch copy itself is a repo (it has lib/, test/, workflow.rb),
+    # so the climb from a plain subdir must NOT stop before the scratch
+    # root... unless no marker exists above it.  Create the plain dir under
+    # /tmp instead (outside any repo) and chdir there; ensure returns to
+    # @scratch first so teardown still removes the suite tree.
+    plain = Dir.mktmpdir('plain-', '/tmp')
+    FileUtils.mkdir_p(plain)
+    Dir.chdir(plain)
+    Cortex.reset_cortex!
+    # No lib/, bin/ or README.md anywhere above plain => the climb finds no
+    # repo, so the anchor stays unset: CORTEX.libdir is not PINNED to the
+    # PWD (it lazily falls back to Scout's own caller-lib resolution, which
+    # is exactly the "keep today's lazy fallback" contract); nothing raises.
+    assert_equal nil, Cortex.chat_anchor
+    assert_not_equal plain, Cortex.cortex_libdir
+    assert_equal nil, Cortex::CORTEX.instance_variable_get(:@libdir)
+    assert Cortex.map?(:lib)
+  ensure
+    FileUtils.remove_entry(plain) if plain && File.directory?(plain)
+    Dir.chdir(@scratch)
   end
 
   # ------------------------------------------------------------------
@@ -94,8 +166,9 @@ class TestCortexPathMaps < Test::Unit::TestCase
     Cortex.configure_cortex!
 
     order = Cortex.map_order
-    assert_equal :chat, order.first
-    assert order.index(:b) < order.index(:lib), order.inspect
+    assert_equal [:current, :lib, :user], order.first(3)
+    assert order.index(:b) > order.index(:user), order.inspect
+    assert order.index(:b) < order.index(:fast), order.inspect
     assert order.include?(:ro)
 
     assert_equal false, Cortex.read_only_map?(:b)
@@ -116,8 +189,8 @@ class TestCortexPathMaps < Test::Unit::TestCase
 
     assert_equal File.join(@proj_b, 'var/cortex/artifacts/x.md'),
                  Cortex.resource_path(:artifacts, 'x.md', :lib)
-    # :lib stays in the tail of the map order even when redefined
-    assert_equal :lib, Cortex.map_order.last(3).first
+    # :lib keeps its HEAD position even when redefined by yaml
+    assert_equal :lib, Cortex.map_order[1]
   end
 
   def test_yaml_lookup_root_then_etc
@@ -157,28 +230,45 @@ class TestCortexPathMaps < Test::Unit::TestCase
   def test_reconfigure_on_anchor_change
     ENV['SCOUT_CHAT_DIR'] = @proj_a
     Cortex.reset_cortex!
-    a = Cortex.resource_path(:artifacts, 'x.md', :chat)
+    a = Cortex.resource_path(:artifacts, 'x.md', :lib)
 
     ENV['SCOUT_CHAT_DIR'] = @proj_b
     Cortex.reset_cortex!
-    b = Cortex.resource_path(:artifacts, 'x.md', :chat)
+    b = Cortex.resource_path(:artifacts, 'x.md', :lib)
 
     assert a != b
     assert_equal File.join(@proj_b, 'var/cortex/artifacts/x.md'), b
   end
 
   def test_unanchored_keeps_historical_maps
-    # SCOUT_CHAT_DIR unset and PWD inside the pristine :lib checkout itself
-    # (no yaml): the anchor IS the checkout, so :chat == :lib collapse and
-    # there is no separate anchor map to configure.
+    # SCOUT_CHAT_DIR unset and PWD inside a scratch repo (README.md marker,
+    # no yaml): the anchor is that repo, so :lib resolves to its store and
+    # :current collapses onto the same directory at the repo root.
     ENV.delete('SCOUT_CHAT_DIR')
-    checkout = File.expand_path(File.join(File.dirname(__FILE__), '..', '..'))
-    Dir.chdir(checkout)
+    FileUtils.touch(File.join(@proj_a, 'README.md'))
+    Dir.chdir(@proj_a)
     Cortex.reset_cortex!
     Cortex.configure_cortex!
     assert Cortex.map?(:lib)
-    chat_dir = Cortex::CORTEX[:artifacts].follow(:lib).to_s
-    assert_equal File.join(checkout, 'var', 'cortex', 'artifacts'), chat_dir
+    lib_dir = Cortex::CORTEX[:artifacts].follow(:lib).to_s
+    assert_equal File.join(@proj_a, 'var', 'cortex', 'artifacts'), lib_dir
+    cur_dir = Cortex::CORTEX[:artifacts].follow(:current).to_s
+    assert_equal lib_dir, cur_dir
   end
 
+  def test_full_map_order_pin
+    ENV['SCOUT_CHAT_DIR'] = @proj_a
+    write_yaml(@proj_a, "maps:\n  zz:\n    dir: #{@proj_b}\n")
+    Cortex.reset_cortex!
+    Cortex.configure_cortex!
+    # Head is fixed, extras come in yaml order, then Scout's base table tail
+    # minus :default; the exact tail depends on Scout's own map table, so
+    # pin the invariant, not the literal list.
+    order = Cortex.map_order
+    assert_equal [:current, :lib, :user, :zz], order.first(4)
+    tail   = Path.map_order - [:current, :lib, :user, :zz, :default]
+    assert_equal tail, order[4..-1]
+    assert !order.include?(:chat)
+    assert !order.include?(:default)
+  end
 end

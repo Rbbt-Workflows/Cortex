@@ -37,6 +37,10 @@ class TestCortexStorage < Test::Unit::TestCase
 
     @old_anchor = ENV['SCOUT_CHAT_DIR']
     @old_pwd = Dir.pwd
+    # :current is PWD-based and Scout's default write map: run from the
+    # scratch anchor project so writes never land in the live var/cortex
+    # (and :current/:lib collapse on the same directory).
+    Dir.chdir(@proj_a)
     ENV['SCOUT_CHAT_DIR'] = @proj_a
     Cortex.reset_cortex!
     Cortex.configure_cortex!
@@ -76,7 +80,8 @@ class TestCortexStorage < Test::Unit::TestCase
 
     path, map, all = Cortex.resolve_resource(:artifacts, 'both/x.md')
     assert_equal a_copy, path
-    assert_equal :chat, map
+    # :current (== :lib here, same directory) is searched first
+    assert_equal :current, map
     assert_equal 2, all.length
   end
 
@@ -97,6 +102,9 @@ class TestCortexStorage < Test::Unit::TestCase
 
   def test_pwd_anchor_when_chat_dir_missing
     ENV['SCOUT_CHAT_DIR'] = nil
+    # projC must look like a repo root (lib/ or README.md marker) for the
+    # PWD-fallback climb, since the scratch copy itself is a repo.
+    FileUtils.touch(File.join(@proj_c, 'README.md'))
     Dir.chdir(@proj_c)
     Cortex.reset_cortex!
     Cortex.configure_cortex!
@@ -144,8 +152,8 @@ class TestCortexStorage < Test::Unit::TestCase
   end
 
   def test_same_directory_maps_collapse
-    # projA yaml map `self` points at projA itself: :chat and :self resolve
-    # to the same physical directory and must yield ONE candidate.
+    # projA yaml map `self` points at projA itself: :current/:lib and :self
+    # resolve to the same physical directory and must yield ONE candidate.
     File.open(File.join(@proj_a, 'cortex_path_map.yaml'), 'a') do |f|
       f.write "  self:\n    dir: #{@proj_a}\n"
     end

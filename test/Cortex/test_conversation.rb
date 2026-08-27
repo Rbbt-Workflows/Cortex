@@ -22,6 +22,11 @@ class TestCortexConversation < Test::Unit::TestCase
     @old_anchor = ENV['SCOUT_CHAT_DIR']
     @old_pwd = Dir.pwd
     ENV.delete('SCOUT_CHAT_DIR')
+    # :current is PWD-based and Scout's default write map: run from @other
+    # (a scratch dir with its own var/cortex) so writes never land in the
+    # live var/cortex.  PWD != anchor also keeps :current and :lib distinct
+    # (:current = @other store, :lib = anchor/@proj store).
+    Dir.chdir(@other)
   end
 
   def teardown
@@ -47,7 +52,7 @@ class TestCortexConversation < Test::Unit::TestCase
 
   def test_prompt_chat_continues_existing_conversation
     anchor_at(@proj)
-    write_chat(:chat, 'probe/conv', "user:\n\nhello first\n")
+    write_chat(:current, 'probe/conv', "user:\n\nhello first\n")
     chat = Cortex.conversation_prompt_chat('probe/conv', 'second turn')
     contents = chat.collect { |m| m[:content].to_s.strip }.reject(&:empty?)
     assert_equal ['hello first', 'second turn'], contents
@@ -65,7 +70,7 @@ class TestCortexConversation < Test::Unit::TestCase
 
   def test_prompt_chat_first_map_wins
     anchor_at(@proj)
-    write_chat(:chat, 'probe/both', "user:\n\nanchor copy\n")
+    write_chat(:current, 'probe/both', "user:\n\nanchor copy\n")
     write_chat(:lib, 'probe/both', "user:\n\nlib copy\n")
     chat = Cortex.conversation_prompt_chat('probe/both', 'turn')
     contents = chat.collect { |m| m[:content].to_s.strip }.reject(&:empty?)
@@ -81,7 +86,7 @@ class TestCortexConversation < Test::Unit::TestCase
 
   def test_prompt_chat_briefs_namespace
     anchor_at(@proj)
-    path = Cortex.resource_path(:briefs, 'probe/brf', :chat)
+    path = Cortex.resource_path(:briefs, 'probe/brf', :current)
     FileUtils.mkdir_p(File.dirname(path))
     File.write(path, "user:\n\nbrief history\n")
     chat = Cortex.conversation_prompt_chat('probe/brf', 'brief turn', namespace: :briefs)
@@ -94,7 +99,7 @@ class TestCortexConversation < Test::Unit::TestCase
   # appended after it.  History is never silently discarded.
   def test_headerless_file_keeps_content_instead_of_dropping_history
     anchor_at(@proj)
-    write_chat(:chat, 'probe/bad', "this is not a chat file: no role headers {{{\n")
+    write_chat(:current, 'probe/bad', "this is not a chat file: no role headers {{{\n")
     chat = Cortex.conversation_prompt_chat('probe/bad', 'turn')
     contents = chat.collect { |m| m[:content].to_s.strip }.reject(&:empty?)
     assert contents.include?('this is not a chat file: no role headers {{{')

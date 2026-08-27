@@ -32,12 +32,19 @@ module Cortex
 
   DEFAULT_LIST_LIMIT = 50
 
+  # Every listing row carries the path map in its OWN column, immediately
+  # after #name.  The name column is always the CLEAN logical name (no
+  # ":map" suffix glued on), so a name read off a listing can be copied
+  # straight into cortex_read / cortex_search.  The map column is always
+  # populated -- for unambiguous entries too -- so the table shape never
+  # depends on how many path maps happen to be readable, and an entry that
+  # exists in several maps simply occupies one row per map.
   def self.listing_header(type)
     case type.to_s
-    when 'conversations', 'briefs' then ['#name', 'messages', 'bytes', 'mtime']
-    when 'artifacts' then ['#name', 'bytes', 'mtime']
-    when 'entities' then ['#name', 'version', 'digest', 'type', 'mtime']
-    when 'lists' then ['#name', 'entities', 'mtime']
+    when 'conversations', 'briefs' then ['#name', 'map', 'messages', 'bytes', 'mtime']
+    when 'artifacts' then ['#name', 'map', 'bytes', 'mtime']
+    when 'entities' then ['#name', 'map', 'version', 'digest', 'type', 'mtime']
+    when 'lists' then ['#name', 'map', 'entities', 'mtime']
     end
   end
 
@@ -51,8 +58,7 @@ module Cortex
         collect do |name, map, path|
           next nil unless File.file?(path)
           chat = Chat.load path
-          tag = map_tag map
-          [name + tag, chat_messages(chat).length.to_s, File.size(path).to_s,
+          [name, map.to_s, chat_messages(chat).length.to_s, File.size(path).to_s,
            File.mtime(path).strftime('%Y-%m-%d %H:%M')]
         end.compact
     when 'artifacts', 'lists'
@@ -60,9 +66,8 @@ module Cortex
         select { |name, _map, _path| prefix.nil? || name.start_with?(prefix) }.
         collect do |name, map, path|
           next nil unless File.file?(path)
-          tag = map_tag map
           count = type == 'lists' ? Open.read(path).to_s.split("\n").collect(&:strip).reject(&:empty?).length.to_s : nil
-          row = [name + tag]
+          row = [name, map.to_s]
           row << count if count
           row << File.size(path).to_s
           row << File.mtime(path).strftime('%Y-%m-%d %H:%M')
@@ -86,8 +91,7 @@ module Cortex
             digest  = meta['digest'].to_s[0, 8]
             ptype    = meta['property_type'].to_s
           end
-          tag = map_tag map
-          [name + tag, version.to_s, digest.to_s, ptype.to_s,
+          [name, map.to_s, version.to_s, digest.to_s, ptype.to_s,
            File.mtime(path).strftime('%Y-%m-%d %H:%M')]
         end.compact
     end
@@ -143,17 +147,15 @@ module Cortex
 
   def self.search_conversations(query, type, limit)
     terms = search_terms query
-    ambiguous = ambiguous_names(type.to_sym)
     out = []
     namespace_entries(type.to_sym).each do |name, map, path|
       next unless File.file?(path)
-      tag = ambiguous.include?(name) ? map_tag(map) : ''
       chat = Chat.load path
       chat_messages(chat).each_with_index do |m, i|
         content = m[:content].to_s
         next unless matches_query?(content.downcase, terms)
         snippet = content.gsub(/\s+/, ' ').strip[0, 100]
-        out << [type, name + tag, "#{i}:#{m[:role]}: #{snippet}"]
+        out << [type, name, map.to_s, "#{i}:#{m[:role]}: #{snippet}"]
         break if out.length >= limit
       end
       break if out.length >= limit
@@ -172,17 +174,15 @@ module Cortex
   # Artifact-like namespaces (artifacts, lists): plain text content search.
   def self.search_text_namespace(query, namespace, limit)
     terms = search_terms query
-    ambiguous = ambiguous_names(namespace)
     out = []
     namespace_entries(namespace).each do |name, map, path|
       next unless File.file?(path)
-      tag = ambiguous.include?(name) ? map_tag(map) : ''
       content = Open.read(path).to_s
       next if content.empty?
       down = content.downcase
       next unless matches_query?(down, terms)
       idx = down.index(terms.first) || 0
-      out << [namespace.to_s, name + tag, snippet_around(content, idx)]
+      out << [namespace.to_s, name, map.to_s, snippet_around(content, idx)]
       break if out.length >= limit
     end
     out
