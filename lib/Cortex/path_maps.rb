@@ -61,7 +61,7 @@ require_relative 'storage'
 module Cortex
 
   # Maps that may not be used as write/move targets even when configured.
-  READ_ONLY_MAPS = [:user].freeze
+  READ_ONLY_MAPS = [].freeze
   CONFIGURED_READ_ONLY_MAPS = []
 
   # --- anchor ---------------------------------------------------------
@@ -182,7 +182,7 @@ module Cortex
     order = []
     order << :chat if anchored
     order += extra.collect(&:to_sym)
-    order + [:lib, :current, :user]
+    order + [:current, :user, :lib]
   end
 
   # Absolute template for the shared Cortex store: the directory containing
@@ -263,7 +263,7 @@ module Cortex
     # anchor-derived default would stick after the anchor changes in-process
     # (tests, nested use). Resolve the fallback in Ruby instead.
     map = Scout::Config.get('write_map', 'cortex')
-    map ||= chat_anchor ? :chat : :current
+    map ||= :current
     map = map.to_sym
     raise ScoutException, "Unknown Cortex path map :#{map}; configured maps: #{map_names * ', '}" unless map?(map)
     raise ScoutException, "Cortex path map :#{map} is read-only; writable maps: #{writable_maps * ', '}" if read_only_map?(map)
