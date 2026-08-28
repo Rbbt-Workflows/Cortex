@@ -86,8 +86,8 @@ module Cortex
   require 'Cortex/tasks/artifact'
   require 'Cortex/tasks/list'
 
-  export_exec :cortex_continue, :cortex_brief,
-         :cortex_list, :cortex_search, :cortex_read, :cortex_write,
+  export :cortex_continue, :cortex_brief
+  export_exec :cortex_list, :cortex_search, :cortex_read, :cortex_write,
          :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move,
          :cortex_write_list, :cortex_read_list,
          :cortex_property_list, :cortex_property_read, :cortex_property_history,
