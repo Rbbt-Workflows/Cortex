@@ -426,11 +426,27 @@ module Cortex
     # Compiler
     # ------------------------------------------------------------------
 
+    # Managed entity modules cannot declare annotation inputs at compile
+    # time (property definitions change independently of the type, and Scout
+    # wires `annotation_input` names into generated task inputs).  Entity
+    # options such as organism therefore flow through `mod.setup(entity,
+    # options)`, which Annotation::AnnotationModule#setup accepts as an
+    # options Hash and assigns through the generic annotation writer only
+    # when the annotation name was declared.  We declare the conventional
+    # organism annotation once per managed module so the common case works;
+    # unknown option keys are simply ignored by setup (they become instance
+    # variables on the entity, harmless) rather than raising.
+    ENTITY_CONVENTIONAL_ANNOTATIONS = %i[organism].freeze
+
     def entity_new_module(type)
       mod = Module.new
       mod.extend EntityWorkflow
       mod.name = entity_type! type
       mod.entity_name = Misc.snake_case(type).downcase
+      ENTITY_CONVENTIONAL_ANNOTATIONS.each do |annotation|
+        next if mod.annotations.include?(annotation)
+        mod.annotation annotation
+      end
       mod
     end
 
@@ -1309,6 +1325,14 @@ def entity_vector_job(mod, property, entity, arguments = {}, entity_options: nil
   type = mod.name
   defn = property_definition(type, property) || {}
   args = arguments.merge(entity_identity_inputs(type, property))
+  entity_options = parse_entity_options(entity_options) if String === entity_options
+  # Entity options (organism etc.) are DECLARED annotation inputs of the task
+  # (property_task -> annotation_input), so they must travel as job inputs:
+  # the `entity`/`entity_list` helpers rebuild the receiver from
+  # inputs.to_hash, and without these values the rebuilt receiver loses its
+  # annotations (observed: organism nil for :both/:single; :array only worked
+  # because `entity_list` re-annotates the :list input directly).
+  args = args.merge(entity_options || {})
   entity = annotate_receiver(mod, entity, entity_options, list_name)
   # `:array` and `:both` are list-mode properties (their tasks take the :list
   # input): any receiver executes ONE vector Step keyed by "Default".  Only

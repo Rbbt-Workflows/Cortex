@@ -61,22 +61,18 @@ class TestPropertyRegistry < Test::Unit::TestCase
     [job, result]
   end
 
-  def run_prop(entity_type, property, entity, arguments: {}, update: false)
-    _job, result = Cortex.run_entity_property(entity_type: entity_type, property: property,
-                                              entity: entity, arguments: arguments,
-                                              update: update)
-    result
-  end
-
   # run_prop returns loaded task values: a Hash for vector (:array/:both)
   # bodies and a JSON String (or Array of them) for fan-out (:single)
   # bodies. Normalize to a single Hash when possible.
+  # Loaded :json task values are Ruby-native Hashes with SYMBOL keys (the
+  # body's literal). IndiferentHash.setup makes string access work.
   def as_result_hash(result)
     result = JSON.parse(result) if String === result rescue result
     result = result.first if Array === result && result.length == 1
     result = IndiferentHash.setup(result) if Hash === result
     result
   end
+
 
   def test_record_after_execution
     define_simple_property
@@ -177,7 +173,8 @@ class TestPropertyRegistry < Test::Unit::TestCase
     # :single fan-out: one result per member, each executed as an
     # annotated scalar of the entity type.
     assert_equal 2, result.length
-    assert(result.all? { |r| r['base'].to_s == 'TF' })
+    # Fan-out results are per-member values (Hashes after :json load).
+    assert(result.all? { |r| IndiferentHash.setup(r.dup)['base'].to_s == 'TF' })
   end
 
   def test_annotated_array_array_dispatch
@@ -185,8 +182,9 @@ class TestPropertyRegistry < Test::Unit::TestCase
            body: "{ aa: AnnotatedArray === entity, base: entity.respond_to?(:entity_classes) ? entity.entity_classes.last.to_s : entity.class.to_s }",
            property_type: 'array', result_type: 'json')
     _job, result = run_prop("TF", "vector", %w[FOXO1 TP53])
-    assert_equal true, as_result_hash(result)['aa']
-    assert_equal 'TF', as_result_hash(result)['base']
+    h = as_result_hash(result)
+    assert_equal true, h['aa']
+    assert_equal 'TF', h['base']
   end
 
   def test_annotated_array_both_dispatch
@@ -194,13 +192,14 @@ class TestPropertyRegistry < Test::Unit::TestCase
            body: "{ aa: AnnotatedArray === entity, base: entity.respond_to?(:entity_classes) ? entity.entity_classes.last.to_s : entity.class.to_s }",
            property_type: 'both', result_type: 'json')
     _job, result = run_prop('TF', 'bothp', %w[FOXO1 TP53])
-    assert_equal true, as_result_hash(result)['aa']
-    assert_equal 'TF', as_result_hash(result)['base']
+    h = as_result_hash(result)
+    assert_equal true, h['aa']
+    assert_equal 'TF', h['base']
   end
 
   def test_entity_options_flow_to_setup
     define('TF', 'optsp',
-           body: "{ organism: (entity.annotations.last[:organism] rescue nil) }",
+           body: "{ organism: (entity.organism rescue nil) }",
            property_type: 'both', result_type: 'json')
     _job, result = run_prop_opts(entity_type: 'TF', property: 'optsp',
                                  entity: %w[FOXO1], arguments: {},
