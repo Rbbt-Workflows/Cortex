@@ -1,0 +1,44 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'scout'
+
+cmd = $previous_commands ?
+  "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" :
+  $PROGRAM_NAME
+
+options = SOPT.setup <<~EOF
+
+Run a Cortext command
+
+$ #{cmd} [<options>] command [<other|->]*
+
+-h--help Print this help
+-t--type* Element type
+-n--name* Name of element
+-e--entity* Entity
+-et--entity_type* Entity
+-p--property* Property
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+help = IndiferentHash.process_options options, :help
+
+command, name, _ = ARGV
+
+options[:type] ||= 'artifacts'
+options[:name] ||= name
+
+raise MissingParameterException, :command if command.nil?
+
+Workflow.require_workflow 'Cortex'
+job = Cortex.job("cortex_#{command}".to_sym, nil, options)
+
+puts job.exec
