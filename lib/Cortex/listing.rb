@@ -43,6 +43,7 @@ module Cortex
     case type.to_s
     when 'conversations', 'briefs' then ['#name', 'map', 'messages', 'bytes', 'mtime']
     when 'artifacts' then ['#name', 'map', 'bytes', 'mtime']
+    when 'properties' then ['#name', 'map', 'examinations', 'runs', 'last_run']
     when 'entities' then ['#name', 'map', 'version', 'digest', 'type', 'mtime']
     when 'lists' then ['#name', 'map', 'entities', 'mtime']
     end
@@ -72,6 +73,19 @@ module Cortex
           row << File.size(path).to_s
           row << File.mtime(path).strftime('%Y-%m-%d %H:%M')
           row
+        end.compact
+    when 'properties'
+      # One row per execution record: Type/property/receiver.json
+      require 'json'
+      namespace_entries(:properties).
+        select { |name, _map, _path| prefix.nil? || name.start_with?(prefix) }.
+        collect do |name, map, path|
+          next nil unless File.file?(path)
+          record = JSON.parse(File.read(path)) rescue {}
+          [name, map.to_s,
+           Array(record['examinations']).length.to_s,
+           record['runs'].to_s,
+           record['last_run'].to_s]
         end.compact
     when 'entities'
       # Group by entity type; each row is one property definition

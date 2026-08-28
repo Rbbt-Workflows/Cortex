@@ -14,6 +14,8 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
   test.analysis
 
   path_map
+
+  entities
  }
  lib=lib {
   Cortex=Cortex{
@@ -42,4 +44,9 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
  test=test {
   test_helper.rb
  }
+ share=share{
+ scout_commands=scout_commands{
+  cortex
+ }
+}
 }

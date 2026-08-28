@@ -11,6 +11,7 @@ require 'Cortex/conversations'
 require 'Cortex/briefs'
 require 'Cortex/artifacts'
 require 'Cortex/lists'
+require 'Cortex/properties'
 require 'Cortex/listing'
 
 # ==========================================================================

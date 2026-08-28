@@ -5,7 +5,7 @@
 
 module Cortex
 
-  input :type, :select, "Namespace to list: conversations, briefs, artifacts, entities, lists, or all (every namespace with counts)", 'all', select_options: %w(conversations briefs artifacts entities lists all)
+  input :type, :select, "Namespace to list: conversations, briefs, artifacts, entities, lists, properties (executions), or all (every namespace with counts)", 'all', select_options: %w(conversations briefs artifacts entities lists properties all)
   input :prefix, :string, 'Only names starting with this prefix', nil
   input :offset, :integer, 'Skip the first N entries (pagination)', 0
   input :limit, :integer, 'Maximum entries per page', 50
@@ -15,7 +15,7 @@ module Cortex
   end
 
   input :query, :string, 'Keyword(s) to search for; multiple terms are ANDed', nil, required: true
-  input :type, :select, "Restrict search: conversations, briefs, artifacts, lists, or all", 'all', select_options: %w(conversations briefs artifacts lists all)
+  input :type, :select, "Restrict search: conversations, briefs, artifacts, lists, properties (executions), or all", 'all', select_options: %w(conversations briefs artifacts lists properties all)
   input :limit, :integer, 'Maximum number of matches to return', 20
   task :cortex_search => :text do |query,type,limit|
     type = Cortex.validate_type! type
@@ -28,6 +28,7 @@ module Cortex
     end
     rows += search_artifacts(query, limit - rows.length) if type != 'conversations' && type != 'lists' && rows.length < limit
     rows += Cortex.search_text_namespace(query, :lists, limit - rows.length) if type != 'conversations' && type != 'artifacts' && rows.length < limit
+    rows += Cortex.search_text_namespace(query, :properties, limit - rows.length) if type != 'conversations' && type != 'artifacts' && type != 'lists' && rows.length < limit
     if rows.empty?
       "No matches for #{query.inspect}"
     else
@@ -37,7 +38,7 @@ module Cortex
   end
 
   input :name, :string, 'Name of the conversation, brief, artifact, or entity list (artifacts and lists may include subdirs, e.g. claims/C42.md or TF/C01)', nil, required: true
-  input :type, :select, "Namespace of the item to read", nil, {select_options: %w(conversations briefs artifacts lists), required: true, jobname: true}
+  input :type, :select, "Namespace of the item to read", nil, {select_options: %w(conversations briefs artifacts lists properties), required: true, jobname: true}
   input :last, :integer, 'Trailing N messages of a conversation/brief (full content)', nil
   input :range, :string, 'Inclusive message index range "a-b" (e.g. "0-3") of a conversation/brief', nil
   input :start_line, :integer, 'First line to return for artifacts (1-based)', 1
@@ -58,6 +59,21 @@ module Cortex
       out << "[note] exists in more than one path map; using :#{map} (#{all_paths * ' | '})" if all_paths.length > 1
       out << meta.to_s unless meta.empty?
       out << entities * "\n"
+      out * "\n"
+    when 'properties'
+      type_name, property, receiver = name.split(File::SEPARATOR, 3)
+      raise ScoutException, "Property execution name must be <Type>/<property>/<receiver>" if receiver.nil? || receiver.empty?
+      rec = Cortex.load_execution_record(type_name, property, receiver)
+      raise ScoutException, "No property execution #{name.inspect} under var/cortex/properties (list with cortex_list type=properties)" if rec.nil?
+      out = ["Property executions for #{rec['entity_type']}.#{rec['property']} on #{rec['receiver']}",
+             "first_run: #{rec['first_run']}  last_run: #{rec['last_run']}"]
+      rec['examinations'].each_with_index do |e, i|
+        out << "##{i + 1} arguments=#{e['arguments'].inspect} runs=#{e['runs']}"
+        out << "   property_job=#{e['property_job']}"
+        out << "   definition_version=#{e['definition_version']} digest=#{e['definition_digest']}" if e['definition_digest']
+        out << "   result_digest=#{e['result_digest']}" if e['result_digest']
+        out << "   forced_update" if e['forced_update']
+      end
       out * "\n"
     end
   end

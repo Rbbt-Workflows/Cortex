@@ -295,17 +295,23 @@ module Cortex
   end
 
   # ------------------------------------------------------------------
-  # Execution: run an active property for a concrete entity
+  # Execution: run an active property for a concrete entity or entity list
   # ------------------------------------------------------------------
 
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name', nil, required: true
-  input :entity, :string, 'Entity identifier, or a JSON array of identifiers', nil, required: true
+  input :entity, :string, 'Entity identifier, or a JSON array of identifiers', nil
+  input :list, :string, 'Named entity list from the lists namespace (<entity_type>/<list>, e.g. TF/C01); takes precedence over inline identifiers', nil
   input :arguments, :text, 'Property arguments (JSON object, never positional)', {}
   input :entity_options, :text, 'Entity annotation options (JSON object)', nil
   input :update, :boolean, 'Clean the property job and recompute it', false
-  task :cortex_entity_property => :json do |entity_type, property, entity, arguments,
-                                            entity_options, update|
+  task :cortex_entity_property => :json do |entity_type, property, entity, list, arguments,
+                                          entity_options, update|
+    raise ScoutException,
+          "Provide either entity or list, not both" if !entity.to_s.strip.empty? && !list.to_s.strip.empty?
+    raise ScoutException,
+          "Provide an entity identifier or a named list (entity or list)" if entity.to_s.strip.empty? && list.to_s.strip.empty?
+
     # `entity` is a string input: parse JSON array payloads into entity lists,
     # keep everything else as a single identifier.
     begin
@@ -316,6 +322,28 @@ module Cortex
     end
 
     arguments = JSON.parse(arguments) if String === arguments
+    entity_options = JSON.parse(entity_options) if String === entity_options
+    entity_options = IndiferentHash.setup(entity_options) if Hash === entity_options
+
+    # Resolve the named list BEFORE running: the receiver becomes the list
+    # content, and the receipt/registry can reference the list by name.  The
+    # list sidecar may contribute entity_options; the explicit input wins.
+    list_name = nil
+    if list.to_s.strip.size > 0
+      list_type, list_id = list.split(File::SEPARATOR, 2)
+      raise ScoutException, "Invalid list reference #{list.inspect}: expected <entity_type>/<list>" if list_id.nil? || list_id.empty?
+      raise ScoutException, "List #{list.inspect} is not a #{entity_type} list" if list_type != entity_type
+      entities, _meta, _path, _map, _maps = Cortex.read_list list_type, list_id
+      raise ScoutException, "Entity list #{list.inspect} is empty" if entities.empty?
+      entity = entities
+      list_name = list_id
+      list_opts = Cortex.list_entity_options(list_type, list_id)
+      if list_opts && list_opts.any?
+        merged = IndiferentHash.setup(list_opts.dup)
+        merged.merge!(entity_options || {})
+        entity_options = merged
+      end
+    end
 
     # Read the definition BEFORE running: the run may repoint the loaded
     # generation (update: true cleans+recomputes against the active meta), and
@@ -324,24 +352,33 @@ module Cortex
     raise ScoutException,
           "Entity property #{entity_type}/#{property} is not active" if defn.nil? || !defn['active']
 
-
     job, result = begin Cortex.run_entity_property(entity_type: entity_type, property: property,
-                                             entity: entity, arguments: arguments || {},
-                                             entity_options: entity_options, update: update)
+                                                   entity: entity, arguments: arguments || {},
+                                                   entity_options: entity_options, update: update,
+                                                   list_name: list_name)
                   rescue ScoutException
                     raise ScoutException
                   rescue Exception
                     raise ParameterException, "Property execution raised: #{$!.message}"
                   end
 
-    { entity_type: entity_type, entity: entity, property: property,
-      arguments: arguments || {},
-      definition_version: defn['version'], definition_digest: defn['digest'],
-      # A list receiver fans out to one job per member; report every producer
-      # path (the receipt stays a single object: property_job is a String for
-      # a scalar receiver and an Array of Strings for a list receiver).
-      property_job: Array === job ? job.collect(&:short_path) : job.short_path,
-      result: result }
+    # The engine (Cortex.run_entity_property) records every execution into the
+    # properties registry itself, including the producing workflow job, so the
+    # task only builds the receipt here.
+
+    receipt = { entity_type: entity_type, entity: entity, property: property,
+                arguments: arguments || {},
+                definition_version: defn['version'], definition_digest: defn['digest'],
+                # A list receiver fans out to one job per member; the receipt
+                # stays a single object: property_job is a String for a scalar
+                # receiver and an Array of Strings for a list receiver.
+                property_job: Array === job ? job.collect(&:short_path) : job.short_path,
+                result: result }
+    unless list_name.nil?
+      receipt[:entity_list] = "#{entity_type}/#{list_name}"
+      receipt[:entity_count] = Array === entity ? entity.length : 1
+    end
+    receipt
   end
 
 end

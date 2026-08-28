@@ -27,6 +27,8 @@ require 'json'
 #                   see lib/Cortex/entities.rb)
 #   lists/          <entity_type>/<list> newline-separated entity lists
 #                   + .meta sidecars (see lib/Cortex/lists.rb)
+#   properties/     <Type>/<property>/<entity>.json execution records
+#                   (engine-managed registry, see lib/Cortex/properties.rb)
 #
 # Names are arbitrary relative paths (any depth); absolute paths, ~, '..'
 # and control characters are rejected.
@@ -41,13 +43,13 @@ module Cortex
 
   # The canonical namespaces, in listing order.  'entities' is engine
   # managed (lib/Cortex/entities.rb); everything else is plain storage.
-  NAMESPACES = %w(conversations briefs artifacts entities lists).freeze
+  NAMESPACES = %w(conversations briefs artifacts entities lists properties).freeze
 
   # Suffix used by #list_name (singular, for error messages).
   SINGULAR = {
     'conversations' => 'conversation', 'briefs' => 'brief',
     'artifacts' => 'artifact', 'entities' => 'entity property',
-    'lists' => 'entity list'
+    'lists' => 'entity list', 'properties' => 'property execution'
   }.freeze
 
   def self.validate_namespace!(namespace)
@@ -167,6 +169,9 @@ module Cortex
       type, list = name.split(File::SEPARATOR, 2)
       raise ScoutException, "Invalid lists resource #{name.inspect}: expected <entity_type>/<list>" if list.nil? || list.empty?
       [File.join(base, '.meta', type, "#{list}.yaml")]
+# Property executions: <Type>/<property>/<entity>.json; wholly managed by
+# the recording engine (the record IS the metadata, no sidecar store).
+when 'properties' then []
     when 'conversations' then []
     else raise ScoutException, "Unknown Cortex namespace #{namespace}"
     end

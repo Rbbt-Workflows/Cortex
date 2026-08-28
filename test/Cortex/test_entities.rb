@@ -21,7 +21,7 @@ Scout::Config::CACHE['cortex'] = [[['read_maps'], 'lib,current,user'],
                                   [['write_map'], 'current']]
 Cortex.instance_variable_set(:@entity_root, Path.setup('var'))
 
-TEST_TYPES = %w[ProbeGene ProbeDep ProbeA ProbeB ProbeCyc ProbeArr ProbeBoth
+TEST_TYPES = %w[TF ProbeGene ProbeDep ProbeA ProbeB ProbeCyc ProbeArr ProbeBoth
                 ProbeNames ProbeRecycle].freeze
 
 module TestEntitiesHelpers

@@ -117,6 +117,18 @@ module Cortex
     [entities, meta, path, map, all_paths]
   end
 
+# Entity options recorded in the list's .meta sidecar, if any.  Used when a
+# named list feeds a property execution so the receiver is annotated with
+# the options the list was defined with.  Returns an empty hash when the
+# sidecar or the key is absent; the caller merges (explicit input wins).
+def self.list_entity_options(entity_type, list)
+  _entities, meta, _path, _map, _maps = read_list(entity_type, list)
+  opts = meta.is_a?(Hash) ? meta['entity_options'] : nil
+  return {} if opts.nil?
+  opts = JSON.parse(opts) if String === opts
+  IndiferentHash.setup(opts || {})
+end
+
   # Entities only.
   def self.load_list(entity_type, list)
     read_list(entity_type, list).first
