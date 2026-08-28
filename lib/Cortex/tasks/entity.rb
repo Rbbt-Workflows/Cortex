@@ -314,11 +314,13 @@ module Cortex
 
     # `entity` is a string input: parse JSON array payloads into entity lists,
     # keep everything else as a single identifier.
-    begin
-      parsed = JSON.parse entity
-      entity = parsed if Array === parsed
-    rescue JSON::ParserError
-      # plain identifier
+    if entity && !entity.to_s.strip.empty?
+      begin
+        parsed = JSON.parse entity
+        entity = parsed if Array === parsed
+      rescue JSON::ParserError
+        # plain identifier
+      end
     end
 
     arguments = JSON.parse(arguments) if String === arguments

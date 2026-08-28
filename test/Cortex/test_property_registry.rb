@@ -164,6 +164,28 @@ class TestPropertyRegistry < Test::Unit::TestCase
     assert_match(/property_job/, content)
   end
 
+  def test_task_level_named_list_without_entity
+    define_simple_property(property_type: 'both')
+    Cortex.write_list('TF', 'TL1', %w[FOXO1 TP53], job: 'test_registry')
+
+    job = Cortex.job(:cortex_entity_property, 'tl_only',
+                     entity_type: 'TF', property: 'probe',
+                     list: 'TF/TL1', arguments: '{}')
+    job.exec
+    receipt = job.load
+    receipt = JSON.parse(receipt) if String === receipt
+
+    assert_equal 'TF/TL1', receipt[:entity_list]
+    assert_equal 2, receipt[:entity_count]
+    assert_equal %w[FOXO1 TP53], Array(receipt[:entity])
+
+    names = Cortex.execution_record_names
+    assert names.include?('TF/probe/list:TF_TL1'), names.inspect
+    %w[FOXO1 TP53].each do |member|
+      assert names.include?("TF/probe/#{member}"), names.inspect
+    end
+  end
+
   def test_annotated_array_single_dispatch
     define_simple_property(property_type: 'single')
     Cortex.write_list('TF', 'AA1', %w[FOXO1 TP53], description: 'aa', job: 'test_registry')
