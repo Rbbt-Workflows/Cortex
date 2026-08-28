@@ -324,6 +324,13 @@ Returns the newline-separated entities of
 the `.meta` sidecar (description, entity_options, provenance) is appended
 below the entity count.
 
+Named lists are the preferred way to run properties over many entities:
+define the list first, then pass it to `cortex_entity_property` as
+`list: "<entity_type>/<list>"`. Execution records then reference the
+list by name (`receiver: list:<type>_<list>`) instead of an opaque
+inline array, and the list sidecar's `entity_options` are merged into
+the run.
+
 ## cortex_move
 Move a resource between path maps keeping its logical name
 
@@ -333,6 +340,23 @@ snapshots travel together as one logical object; the source disappears.
 Artifact `.meta` gets a version record (mode `move`) with from/to maps. The
 target must not already exist. Rename changes the logical name, move changes
 the path map — the two stay distinct.
+
+## properties listing (cortex_list / cortex_search)
+See which entity properties have already been investigated
+
+`cortex_list type=properties` returns one row per execution record
+`properties/<entity_type>/<property>/<receiver>` with the receiver (an
+entity id or `list:<type>_<list>` for named lists), the examinations
+count (distinct argument sets), total runs, and the last-run timestamp.
+`cortex_search type=properties <term>` matches record contents.
+`cortex_read` reads the record: every examination entry carries its
+arguments, argument digest, run count, first/last run, forced-update
+flag, `property_job` (the producing Scout Step — the evidence), the
+definition version/digest in force, result digest, producer job, agent,
+and the list name when the receiver was a named list. Re-running with
+the same arguments increments `runs`; different arguments create a new
+examination. So "FOXO1 of type TF has had activity_in_experiment
+examined for PD, PI and PD_PI" is a listing query, not a re-run.
 
 ## cortex_property_list
 List entity property definitions with versions and digests
@@ -434,6 +458,14 @@ the definition identity (version/digest), so an identical call replays
 from cache, while any change to the definition or a dependency invalidates
 the path. `update: true` cleans and recomputes the property job at the
 same path.
+
+Instead of inline identifiers, pass a named list through `list:
+"<entity_type>/<list>"` (it takes precedence over `entity`). The list
+is resolved before execution, its `entity_options` are merged in, the
+receiver is annotated as an `AnnotatedArray` of the entity type (the
+persistence contract for list dispatch), and the receipt gains
+`entity_list` (`<type>/<list>`) and `entity_count`. Execution records
+register both the named-list execution and one record per member.
 
 Discipline: never transcribe numerical evidence when a property can return
 it — claims and artifacts should cite the property job that produced their

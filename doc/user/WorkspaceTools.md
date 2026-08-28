@@ -1,7 +1,8 @@
 # Workspace Tools
 
-This page documents the ten `cortex_*` workspace tools agents use to
-navigate, extend, and manage the Cortex workspace, and the eight
+This page documents the `cortex_*` workspace tools agents use to
+navigate, extend, and manage the Cortex workspace, the two named-list
+tools (`cortex_write_list` / `cortex_read_list`), and the eight
 `cortex_property*` / `cortex_entity_property` tools for executable entity
 properties.
 
@@ -25,6 +26,10 @@ inside Cortex, or you are an agent that just got the Cortex tools.
    definitions (never generic write/edit)
 9. `cortex_entity_property` — execute a property and get an evidence receipt
    citing the producing job
+10. `cortex_list type=properties` — see which entities/properties have
+    already been investigated, with which arguments
+11. `cortex_write_list` / `cortex_read_list` — name entity lists once and
+    run properties over them by reference
 
 Rules of thumb:
 
@@ -36,6 +41,13 @@ Rules of thumb:
   extract it into an artifact.
 - Large resources are read incrementally (line pagination); listings are
   paged with `offset`/`limit`.
+- Before executing a property over many entities, define a named list
+  (`cortex_write_list`) and pass it as `list:` — inline JSON arrays
+  still work, but named lists keep execution records legible and carry
+  `entity_options`.
+- Before running anything, check `cortex_list type=properties`: an
+  already-investigated question shows up there with its arguments and
+  producing jobs.
 
 ---
 

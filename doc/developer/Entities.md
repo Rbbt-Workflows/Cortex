@@ -187,3 +187,45 @@ any workflow task in the repository.
   used path.
 - `cortex_search` does not index definitions; discovery is
   `cortex_property_list` (deliberate, for this milestone).
+
+## Execution registry
+
+Property *executions* are persisted separately from property *code*:
+
+```
+var/cortex/
+  entities/    # property code: <Type>/<property>.rb + .meta + .history
+  properties/  # execution records: <Type>/<property>/<receiver>.json
+  lists/       # named entity lists: <entity_type>/<list> (+ .meta)
+```
+
+A record is written by the engine (`run_entity_property`) on every
+execution. `receiver` is either an entity id or, for named lists,
+`list:<type>_<list>`. Each `examinations` entry is one distinct argument
+set: re-running the same arguments increments `runs`; new arguments
+create a new examination. Every entry records `arguments`,
+`arguments_digest`, `first_run`/`last_run`, `forced_update`,
+`property_job` (the producing Scout Step short path — the evidence
+producer, never the outer Cortex task), `definition_version`,
+`definition_digest`, `result_digest`, `first/last_producer_job`,
+`first/last_agent`, and `list` when the receiver came from a named list.
+
+Entity options flow as task *inputs*: managed entity modules declare the
+entity-type annotations (`entity_new_module` adds
+`annotation entity_name`), and `entity_vector_job` merges
+`entity_options` into the job args. This is required because the
+`entity`/`entity_list` helpers rebuild receivers from
+`inputs.to_hash`; annotation values that are not job inputs are lost on
+rebuild (observed: `organism` nil in `:single`/`:both` bodies).
+
+## Named lists and list dispatch
+
+`annotate_receiver` is the single place that establishes the persistence
+contract: lists become `AnnotatedArray` entities of the module's type
+(named lists carry a `list` annotation naming their source); scalars
+become annotated single entities. `:single` fans out one Step per
+member; `:array`/`:both` run one vector Step keyed by `Default` with the
+receiver in the `:list` input. The registry records the named-list
+execution (`list:<type>_<list>`) plus one member record per entity, so
+an agent can ask both "was this list examined" and "was this entity
+examined".
