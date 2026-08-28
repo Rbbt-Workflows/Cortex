@@ -171,7 +171,6 @@ module Cortex
       exam['result_digest'] = result_digest if result_digest
       exam['last_producer_job'] = job.to_s if job
       exam['last_agent'] = agent.to_s if agent
-      exam['list'] = list_name.to_s unless list_name.to_s.empty?
     else
       rec['examinations'] << IndiferentHash.setup({
         'arguments' => IndiferentHash.setup(arguments || {}),
@@ -187,8 +186,7 @@ module Cortex
         'first_producer_job' => job.to_s,
         'last_producer_job' => job.to_s,
         'first_agent' => agent.to_s,
-        'last_agent' => agent.to_s,
-        'list' => (list_name && !list_name.empty?) ? list_name : nil
+        'last_agent' => agent.to_s
       }.compact)
     end
 

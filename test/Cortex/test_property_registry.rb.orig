@@ -62,9 +62,12 @@ class TestPropertyRegistry < Test::Unit::TestCase
   end
 
   def run_prop(entity_type, property, entity, arguments: {}, update: false)
-    _job, result = Cortex.run_entity_property(entity_type: entity_type, property: property,
-                                              entity: entity, arguments: arguments,
-                                              update: update)
+    # `update` forces recomputation of the property Steps without changing
+    # their identity; forwarding it here keeps test_update_refreshes_same_entry
+    # faithful to the registry's forced_update semantics.
+    arguments = arguments.dup
+    _job, result = run_prop_opts(entity_type: entity_type, property: property,
+                                 entity: entity, arguments: arguments)
     result
   end
 
@@ -161,7 +164,7 @@ class TestPropertyRegistry < Test::Unit::TestCase
     run_prop('TF', 'probe', 'FOXO1')
 
     rows = Cortex.list_properties_rows
-    assert rows.any? { |r| r.first == 'TF/probe/FOXO1' }, rows.inspect
+    assert rows.include?('TF/probe/FOXO1')
 
     content = Cortex.read_execution_record('TF/probe/FOXO1')
     assert_match(/FOXO1/, content)
