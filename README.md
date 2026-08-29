@@ -435,8 +435,8 @@ always deliberate and reversible in intent: nothing is silently dropped.
 ## cortex_entity_property
 Execute an entity property and return an evidence receipt
 
-Runs the active definition for `entity` (a scalar, or a JSON array for a
-list of entities) with `arguments`, and returns exactly:
+Runs the active definition for an entity or entity list with `arguments`,
+and returns exactly:
 
 ```json
 {
@@ -459,13 +459,21 @@ from cache, while any change to the definition or a dependency invalidates
 the path. `update: true` cleans and recomputes the property job at the
 same path.
 
-Instead of inline identifiers, pass a named list through `list:
-"<entity_type>/<list>"` (it takes precedence over `entity`). The list
-is resolved before execution, its `entity_options` are merged in, the
-receiver is annotated as an `AnnotatedArray` of the entity type (the
-persistence contract for list dispatch), and the receipt gains
-`entity_list` (`<type>/<list>`) and `entity_count`. Execution records
-register both the named-list execution and one record per member.
+**The canonical multi-entity workflow is list-first**: define a named list
+with `cortex_write_list` once (discover existing ones with
+`cortex_list type=lists`), then pass it through
+`list: "<entity_type>/<list>"` and omit `entity`. The list is resolved
+before execution, its `entity_options` are merged in, the receiver is
+annotated as an `AnnotatedArray` of the entity type (the persistence
+contract for list dispatch), and the receipt gains `entity_list`
+(`<type>/<list>`) and `entity_count`. Execution records register both the
+named-list execution and one record per member.
+
+`entity` takes a single identifier. An inline JSON array still executes
+(backwards compatibility) but is recorded as an anonymous batch: when it
+holds more than three members the receipt carries a `note` steering you
+towards the named-list workflow. Prefer named lists for any repeated or
+multi-entity work.
 
 Discipline: never transcribe numerical evidence when a property can return
 it — claims and artifacts should cite the property job that produced their

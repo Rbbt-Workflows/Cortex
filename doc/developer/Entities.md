@@ -229,3 +229,13 @@ receiver in the `:list` input. The registry records the named-list
 execution (`list:<type>_<list>`) plus one member record per entity, so
 an agent can ask both "was this list examined" and "was this entity
 examined".
+
+## Inline arrays vs named lists (agent guidance)
+
+The task layer accepts an inline JSON array in `entity` for backwards
+compatibility. Arrays with more than three members execute unchanged but
+the receipt gains a `note` field steering the agent toward the canonical
+`cortex_write_list` + `list:` workflow. The note is additive: no existing
+receipt field changes, and named-list runs never carry it. This is a
+model-facing affordance, deliberately not an error, matching the "ideally
+list-first" requirement.

@@ -41,10 +41,12 @@ Rules of thumb:
   extract it into an artifact.
 - Large resources are read incrementally (line pagination); listings are
   paged with `offset`/`limit`.
-- Before executing a property over many entities, define a named list
-  (`cortex_write_list`) and pass it as `list:` — inline JSON arrays
-  still work, but named lists keep execution records legible and carry
-  `entity_options`.
+- **Multi-entity work is list-first**: define a named list once
+  (`cortex_write_list`, discover existing ones with
+  `cortex_list type=lists`) and pass it as `list:`. Inline JSON arrays
+  still execute, but for more than three members the receipt carries a
+  `note` steering you back to named lists: they keep execution records
+  legible, carry `entity_options`, and are indexed per member.
 - Before running anything, check `cortex_list type=properties`: an
   already-investigated question shows up there with its arguments and
   producing jobs.
