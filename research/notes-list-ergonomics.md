@@ -1,87 +1,62 @@
-# Probes: description plumbing & agent-facing schema (2026-08-25, extended 2026-08-29)
+# List-ergonomics implementation notes (2026-08-29)
 
-## P1 — Where do tool descriptions come from?
+## What changed (commits 11a4c44, 2d82798, 700080b)
 
-Executed probe: `desc` before `task` populates `task_info[:description]`, which
-`LLM.task_tool_definition` places in `definition[:description]`. Confirmed live
-with a temporary desc in a task file (`desc` in `lib/Cortex/tasks/*.rb` before
-`task`):
+### D8 — model-facing schema was empty where it mattered
+`desc` bodies live in `lib/Cortex/tasks/*.rb` and flow into
+`task_info[:description]` → `LLM.task_tool_definition`. At HEAD `5aa3d48`
+every entity/list tool exported **empty descriptions**; only the `input`
+descriptions existed, and `entity`'s said "or a JSON array", actively
+endorsing the inline-array habit.
 
-```
-probe task description: "List entity property executions: ..."
-```
+Fixes (commit `11a4c44`):
+- `cortex_entity_property`: `desc` added (list-first first sentence);
+  `list` input re-declared **before** `entity`, description now carries the
+  address format (`<entity_type>/<list>`), the `cortex_write_list` /
+  `cortex_list type=lists` pointers, and "Preferred over entity for any
+  multi-entity work".
+- `entity` input: "Single entity identifier"; multi-entity work is pointed
+  at named lists.
+- `cortex_write_list` / `cortex_read_list`: `desc` added ("canonical way to
+  run a property over multiple entities", redeclare=replaces).
+- `cortex_list` / `cortex_search`: `desc` added; both now present
+  `lists`/`properties` as the check-before-run step.
 
-**Finding D8 (diagnosis confirmed):** after the README migration milestone
-removed all inline `desc` blocks, no `desc` exists anywhere for the
-entity/list/listing tasks. Every exported tool therefore has an empty
-description in the JSON schema the model sees:
+### D9 — guidance note instead of silent acceptance
+`cortex_entity_property` now returns `note:` in the receipt when `entity`
+parses as an inline JSON array of more than 3 members: it still executes,
+but the receipt names `cortex_write_list` + `list:` and `cortex_list
+type=lists` as the canonical path. Scalar and ≤3-member arrays: no note.
+Two registry-suite tests assert both branches (37 tests / 154 assertions
+green).
 
-```
-cortex_entity_property: nil
-cortex_write_list: nil
-cortex_read_list: nil
-cortex_list: nil
-cortex_search: nil
-cortex_read: nil
-cortex_property_list: nil
-```
+All description text is static; no tool description contains workspace
+inventory, so the stable-prefix cache property is preserved.
 
-The model-facing surface is input descriptions only, and those teach the wrong
-pattern:
+## Suites after the change (all green, `BWRAP=false`)
+- entities 24/105 · property_registry 37/154 · lists 9/30 · storage ·
+  workspace 31 checks.
 
-- `entity`: "Entity identifier, **or a JSON array of identifiers**" — the
-  inline-array path is the first documented multi-entity option, in input
-  position 3, before `list`.
-- `list` exists but comes after `entity`, has no worked example in a tool
-  description, and nothing says a list must be *created first*.
-- `cortex_write_list` has an empty description, so nothing links it to property
-  execution.
+## Socialized before/after trials (see `after-trials.md`)
+Harness: delegate the same prompt through the real `Cortex/continue`
+chat_task to a `Worker`, then classify every `cortex_entity_property`
+call in the worker's `log/agent.chat`.
 
-Matches observed usage: 0/136 calls used `list:`; 10 inline arrays; sets
-smuggled via `arguments`.
+- **Before** (surface at `5aa3d48`): 0/3 trials opened with a named list;
+  4 inline-array calls, 1 discarded `cortex_property_define`, 1
+  agent-created list only as a failure fallback.
+- **After**: 3/3 trials checked or created the list before executing;
+  4 `list:` executions, 0 inline arrays.
 
-## P2 — List anomaly resolution
-
-Two historical `cortex_write_list` calls exist (`TF/valid`, `TF/dynamic-505`,
-plus `Composite/P3-C01`). They are not in the current workspace because those
-runs predate the current workspace or used probes that were cleaned up; the
-write path itself is verified live (probe wrote `TF/probe-list` and
-`cortex_list` lists it).
-
-**D9 — resolved: not a defect (stale cached job), plus one real CLI footgun.**
-
-`scout workflow task Cortex cortex_list --type lists` printed `lists 0/0
-entries` while the on-disk workspace and the same job built from Ruby showed
-`TF/probe-list current 3`. Root cause: the CLI job is content-addressed
-(`Default_<digest>`), and a *cached* result from an earlier `cortex_list`
-run (produced when the probe list did not exist / under a different anchor)
-was being served. Deleting the cached job files made the CLI immediately
-print the correct listing:
-
-```
-$ rm ~/.scout/var/jobs/Cortex/cortex_list/Default_fb85280e7398ebb8fb4d78475763b54e*
-$ scout workflow task Cortex cortex_list --type lists --log 0
-lists	1/1 entry
-  #name	map	entities	mtime
-  TF/probe-list	current	3	17	2026-08-29 11:38
-```
-
-Anchor resolution is correct in both venues: `chat_anchor` returns the repo
-both under `SCOUT_CHAT_DIR` and via the PWD marker climb, and
-`namespace_entries(:lists)` finds the file in both. No fix needed in the
-storage layer.
-
-Genuine footguns found (documentation fixes, not engine fixes):
-
-1. The `-t` short flag: the historical `Unknown Cortex namespace type "true"`
-   error shows `-t lists` is parsed as a boolean flag (value `true`), not as
-   `type`. Agents must use `--type`. Document explicitly.
-2. `cortex_list` results are content-addressed and cached: a freshly written
-   list may not appear until the listing job is cleaned/updated. Document
-   ("use `--update`, or expect cached listings within the same job digest").
-
-## Conclusion of the probe phase
-
-The fix belongs in the model-facing layer: `desc` blocks for
-entity/list/listing tasks + reordered/reworded inputs + runtime guidance for
-large inline arrays. Engine is correct. D9 resolved as above.
+## Shared blocker found by both conditions (D10, engine, out of scope here)
+The trial property `TF/len` declares **no arguments**, so
+`cortex_entity_property(..., arguments: {treatment: ...})` raises
+`ScoutException` from `entity_validate_arguments!`
+(`lib/Cortex/entities.rb:1241`) — by design: only declared arguments may be
+passed. Verified with a probe: declaring `treatment` on the property makes
+the identical call succeed; a bogus extra argument on either property still
+fails. This is why the trials' workers could not complete the task in
+either condition — it is orthogonal to list ergonomics and should be
+handled by (a) defining real AGS properties with declared arguments, or
+(b) a separate decision on whether undeclared-argument rejection should
+soften to a warning. Not changed in this pass.
