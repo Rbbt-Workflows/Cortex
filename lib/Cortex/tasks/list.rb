@@ -1,4 +1,3 @@
-require 'Cortex/lists'
 
 # ==========================================================================
 # Cortex entity-list tasks: write / read named entity lists
@@ -9,11 +8,23 @@ require 'Cortex/lists'
 
 module Cortex
 
-  input :entity_type, :string, 'Entity type directory under var/cortex/lists (e.g. TF, Composite)', nil, required: true
-  input :list, :string, 'List name (the file under var/cortex/lists/<entity_type>/; e.g. C01, cell-cycle.md)', nil, required: true
+  desc <<-EOF
+Define a named entity list: the canonical way to refer to a set of entities.
+
+The list is stored under var/cortex/lists/<entity_type>/<list> (one entity per
+line, plus a .meta sidecar). Named lists are how multi-entity property
+executions should be expressed: pass the list reference to the list input of
+cortex_entity_property and the run is recorded under the list name in the
+properties registry, with one examination entry per member entity.
+
+Redeclaring an existing list replaces its content; description and
+entity_options are only updated when supplied.
+  EOF
+  input :entity_type, :string, 'Entity type of the list members (e.g. TF, Gene, Composite)', nil, required: true
+  input :list, :string, 'List name (the file under var/cortex/lists/<entity_type>/; e.g. C01, cell-cycle)', nil, required: true
   input :entities, :text, 'Entities, one per line (newline separated)', nil, required: true
   input :description, :string, 'Optional description recorded in the .meta sidecar', nil
-  input :entity_options, :text, 'Optional entity annotation options (JSON object) recorded in the .meta sidecar', nil
+  input :entity_options, :text, 'Optional entity annotation options (JSON object, e.g. organism) recorded in the .meta sidecar and applied when the list is used as a property receiver', nil
   task :cortex_write_list => :text do |entity_type,list,entities,description,entity_options|
     entity_options = JSON.parse(entity_options) if String === entity_options && !entity_options.to_s.empty?
     name, count, _path = Cortex.write_list(entity_type, list, entities,
@@ -24,7 +35,12 @@ module Cortex
     "Entity list written: #{name} (#{count} entities)"
   end
 
-  input :entity_type, :string, 'Entity type directory under var/cortex/lists', nil, required: true, jobname: true
+  desc <<-EOF
+Read a named entity list: its members and optionally its metadata.
+
+Use cortex_list type=lists to discover available lists first.
+  EOF
+  input :entity_type, :string, 'Entity type of the list (e.g. TF)', nil, required: true, jobname: true
   input :list, :string, 'List name under var/cortex/lists/<entity_type>/', nil, required: true
   input :include_meta, :boolean, 'Also report the .meta sidecar (description, entity_options, provenance)', false
   task :cortex_read_list => :text do |entity_type,list,include_meta|

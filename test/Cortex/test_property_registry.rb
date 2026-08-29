@@ -186,6 +186,59 @@ class TestPropertyRegistry < Test::Unit::TestCase
     end
   end
 
+  def test_task_level_inline_array_guidance_note
+    define('TF', 'probe5',
+           body: 'entity.to_s.length',
+           property_type: 'both', result_type: 'integer')
+
+    five = %w[A BB CCC DDDD EEEEE]
+    job = Cortex.job(:cortex_entity_property, 'inline5',
+                     entity_type: 'TF', property: 'probe5',
+                     entity: five.to_json)
+    job.exec
+    receipt = job.load
+    receipt = JSON.parse(receipt) if String === receipt
+    receipt = IndiferentHash.setup(receipt.dup)
+
+    # Large inline arrays execute fine but carry the steering note...
+    assert receipt.include?(:note), receipt.inspect
+    assert_match(/cortex_write_list/, receipt[:note])
+    # ...while the provenance contract is unchanged.
+    assert_equal 'TF', receipt[:entity_type]
+    assert_equal 5, Array(receipt[:entity]).length
+    assert receipt.include?(:property_job)
+    assert !receipt.include?(:entity_list)
+
+    # Small arrays (3 members or fewer) do not get the note.
+    three = %w[A BB CCC]
+    job3 = Cortex.job(:cortex_entity_property, 'inline3',
+                      entity_type: 'TF', property: 'probe5',
+                      entity: three.to_json)
+    job3.exec
+    r3 = job3.load
+    r3 = JSON.parse(r3) if String === r3
+    r3 = IndiferentHash.setup(r3.dup)
+    assert !r3.include?(:note), r3.inspect
+  end
+
+  def test_task_level_named_list_no_note
+    define_simple_property(property_type: 'both')
+    Cortex.write_list('TF', 'TLG', %w[A BB CCC DDDD EEEEE], job: 'test_registry')
+
+    job = Cortex.job(:cortex_entity_property, 'tl_note',
+                     entity_type: 'TF', property: 'probe',
+                     list: 'TF/TLG')
+    job.exec
+    receipt = job.load
+    receipt = JSON.parse(receipt) if String === receipt
+    receipt = IndiferentHash.setup(receipt.dup)
+
+    # Named lists (even with many members) never carry the inline note.
+    assert !receipt.include?(:note), receipt.inspect
+    assert_equal 'TF/TLG', receipt[:entity_list]
+    assert_equal 5, receipt[:entity_count]
+  end
+
   def test_annotated_array_single_dispatch
     define_simple_property(property_type: 'single')
     Cortex.write_list('TF', 'AA1', %w[FOXO1 TP53], description: 'aa', job: 'test_registry')

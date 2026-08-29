@@ -26,6 +26,12 @@ module Cortex
   # Listing: metadata only, grouped by entity type
   # ------------------------------------------------------------------
 
+  desc <<-EOF
+List defined entity properties (the executable definitions, not their
+executions). Filter by entity type or property-name prefix. Use cortex_list
+type=properties instead to see which executions have already happened, for
+which entities and lists.
+  EOF
   input :entity_type, :string, 'Filter by entity type (e.g. Gene); omit to list all types', nil
   input :prefix, :string, 'Only properties whose name starts with this prefix', nil
   input :include_inactive, :boolean, 'Also list tombstoned/removed properties', false
@@ -66,6 +72,10 @@ module Cortex
 
   input :entity_type, :string, 'Entity type of the property (e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name', nil, required: true
+  desc <<-EOF
+Read the interface of a defined property: description, dispatch type, result
+type, arguments, dependencies and body (paged with start_line/lines).
+  EOF
   input :start_line, :integer, 'First body line to return (1-based; 0 = interface only)', 0
   input :lines, :integer, 'Max body lines to return per page (0 = all remaining)', 200
   task :cortex_property_read => :text do |entity_type, property, start_line, lines|
@@ -106,6 +116,10 @@ module Cortex
   # History: compact version/provenance listing
   # ------------------------------------------------------------------
 
+  desc <<-EOF
+Show the version history of a property definition: every body ever active, in
+order. The current active version is marked.
+  EOF
   input :entity_type, :string, 'Entity type of the property (e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name', nil, required: true
   task :cortex_property_history => :text do |entity_type, property|
@@ -127,6 +141,11 @@ module Cortex
   # Validate: schema + graph + staging compile + optional smoke; no activation
   # ------------------------------------------------------------------
 
+  desc <<-EOF
+Validate a candidate property definition without activating it. The candidate
+compiles in a staging module; with test_entity it is also executed once. The
+active definition, if any, is never modified.
+  EOF
   input :entity_type, :string, 'Entity type of the property (e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name (or candidate name for a new property)', nil, required: true
   input :body, :string, 'Candidate Ruby body; omit to validate the ACTIVE definition', nil
@@ -228,6 +247,15 @@ module Cortex
   # Define / update / remove
   # ------------------------------------------------------------------
 
+  desc <<-EOF
+Define a new entity property: the executable interface between agents and the
+underlying data. Stored as version 1 under var/cortex/entities/<Type>/<property>.rb
+and compiled lazily into an EntityWorkflow module; entity types are created
+implicitly by their first property. The body receives the entity (or
+entity_list) as receiver plus declared argument names as locals, and should
+return machine-readable data, not prose. Refuses to overwrite an existing
+property: use cortex_property_update for that.
+  EOF
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name (snake_case)', nil, required: true
   input :body, :string, 'Ruby body; the entity is the receiver, arguments are locals', nil, required: true
@@ -256,6 +284,13 @@ module Cortex
 
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name (snake_case)', nil, required: true
+  desc <<-EOF
+Update the active definition of an existing property. Requires expected_version:
+the update fails if the active version changed underneath (optimistic
+concurrency). The candidate is validated before activation; failure leaves the
+active version untouched. Updating changes the job identity of every property
+computation, so downstream results recompute on next use.
+  EOF
   input :expected_version, :integer, 'Version being updated (optimistic concurrency)', nil, required: true
   input :body, :string, 'New Ruby body; omit to keep the current one', nil
   input :description, :string, 'New description; omit to keep the current one', nil
@@ -285,6 +320,11 @@ module Cortex
 
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name (snake_case)', nil, required: true
+  desc <<-EOF
+Remove a property definition. The property is tombstoned (it disappears from
+default listings and can no longer be executed) while history and provenance
+are preserved. Requires expected_version for optimistic concurrency.
+  EOF
   input :expected_version, :integer, 'Version being removed (optimistic concurrency)', nil, required: true
   input :agent, :string, 'Agent name recorded in provenance', 'Cortex'
   task :cortex_property_remove => :json do |entity_type, property, expected_version, agent|
@@ -298,14 +338,26 @@ module Cortex
   # Execution: run an active property for a concrete entity or entity list
   # ------------------------------------------------------------------
 
+  desc <<-EOF
+Run an entity property and return a provenance-carrying receipt. This is how
+analytical evidence is obtained in Cortex: never transcribe values by hand,
+call the property. Check cortex_list type=properties first to see what has
+already been examined. For multiple entities define a named list first
+(cortex_write_list; discover existing ones with cortex_list type=lists) and pass
+it through list: the run is recorded under the list name and one examination
+entry per member. A single entity goes through entity; an inline JSON array
+also works but is recorded as an anonymous batch. The receipt carries
+property_job, definition_version and definition_digest; update forces
+recomputation.
+  EOF
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name', nil, required: true
-  input :entity, :string, 'Entity identifier, or a JSON array of identifiers', nil
-  input :list, :string, 'Named entity list from the lists namespace (<entity_type>/<list>, e.g. TF/C01); takes precedence over inline identifiers', nil
+  input :list, :string, 'Named entity list to run the property on, as <entity_type>/<list> (e.g. TF/C01); must already exist (create with cortex_write_list, discover with cortex_list type=lists). Preferred over entity for any multi-entity work', nil
+  input :entity, :string, 'A single entity identifier (for multiple entities define a named list and use the list input instead)', nil
   input :arguments, :text, 'Property arguments (JSON object, never positional)', {}
   input :entity_options, :text, 'Entity annotation options (JSON object)', nil
   input :update, :boolean, 'Clean the property job and recompute it', false
-  task :cortex_entity_property => :json do |entity_type, property, entity, list, arguments,
+  task :cortex_entity_property => :json do |entity_type, property, list, entity, arguments,
                                           entity_options, update|
     raise ScoutException,
           "Provide either entity or list, not both" if !entity.to_s.strip.empty? && !list.to_s.strip.empty?
@@ -379,6 +431,17 @@ module Cortex
     unless list_name.nil?
       receipt[:entity_list] = "#{entity_type}/#{list_name}"
       receipt[:entity_count] = Array === entity ? entity.length : 1
+    end
+
+    # Inline JSON arrays with more than three members still execute (backwards
+    # compatible), but the receipt carries a note steering the agent towards the
+    # canonical named-list workflow for any repeated or multi-entity work.
+    if list_name.nil? && Array === entity && entity.length > 3
+      receipt[:note] = "Executed on an inline array of #{entity.length} entities. " \
+                       "For multi-entity work, define a named list with cortex_write_list " \
+                       "and pass it through the list input (find existing lists with " \
+                       "cortex_list type=lists); executions are then recorded under the " \
+                       "list name and indexed per member."
     end
     receipt
   end
