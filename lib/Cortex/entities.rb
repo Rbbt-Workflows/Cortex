@@ -1290,7 +1290,7 @@ module Cortex
       # step_module carries the `entity`/`entity_list` helpers the body needs,
       # and only Workflow#job extends a Step with it.
       jobs = entity_vector_job mod, property, entity, arguments,
-                               entity_options: entity_options, list_name: list_name
+        entity_options: entity_options, list_name: list_name
       [jobs.first, jobs]
     end
 
@@ -1320,134 +1320,134 @@ module Cortex
     #                      (entity branch); list receiver: ONE vector Step
     #                      keyed by the reserved "Default" jobname with the
     #                      receiver in the :list input (entity_list branch).
-def entity_vector_job(mod, property, entity, arguments = {}, entity_options: nil,
-                      list_name: nil)
-  type = mod.name
-  defn = property_definition(type, property) || {}
-  args = arguments.merge(entity_identity_inputs(type, property))
-  entity_options = parse_entity_options(entity_options) if String === entity_options
-  # Entity options (organism etc.) are DECLARED annotation inputs of the task
-  # (property_task -> annotation_input), so they must travel as job inputs:
-  # the `entity`/`entity_list` helpers rebuild the receiver from
-  # inputs.to_hash, and without these values the rebuilt receiver loses its
-  # annotations (observed: organism nil for :both/:single; :array only worked
-  # because `entity_list` re-annotates the :list input directly).
-  args = args.merge(entity_options || {})
-  entity = annotate_receiver(mod, entity, entity_options, list_name)
-  # `:array` and `:both` are list-mode properties (their tasks take the :list
-  # input): any receiver executes ONE vector Step keyed by "Default".  Only
-  # `:single` fans out one Step per member.
-  vector = %w[both array].include?(defn['property_type'].to_s)
+    def entity_vector_job(mod, property, entity, arguments = {}, entity_options: nil,
+                          list_name: nil)
+      type = mod.name
+      defn = property_definition(type, property) || {}
+      args = arguments.merge(entity_identity_inputs(type, property))
+      entity_options = parse_entity_options(entity_options) if String === entity_options
+      # Entity options (organism etc.) are DECLARED annotation inputs of the task
+      # (property_task -> annotation_input), so they must travel as job inputs:
+      # the `entity`/`entity_list` helpers rebuild the receiver from
+      # inputs.to_hash, and without these values the rebuilt receiver loses its
+      # annotations (observed: organism nil for :both/:single; :array only worked
+      # because `entity_list` re-annotates the :list input directly).
+      args = args.merge(entity_options || {})
+      entity = annotate_receiver(mod, entity, entity_options, list_name)
+      # `:array` and `:both` are list-mode properties (their tasks take the :list
+      # input): any receiver executes ONE vector Step keyed by "Default".  Only
+      # `:single` fans out one Step per member.
+      vector = %w[both array].include?(defn['property_type'].to_s)
 
-  jobs = if vector && Array === entity
-           [mod.job(property.to_sym, 'Default', args.merge(list: entity))]
-         elsif vector
-           # Scalar receiver over a `:both` property runs through the same
-           # single vector Step shape (jobname `Default`) so identity and
-           # caching stay uniform; the wrapper unwraps the one-member result.
-           [mod.job(property.to_sym, 'Default', args.merge(list: annotate_receiver(mod, [entity], entity_options, list_name)))]
-         else
-           Array(entity).collect { |e| mod.job(property.to_sym, e, args) }
-         end
-  jobs
-end
-
-# Annotate a receiver with its entity type (the persistence contract):
-# lists become AnnotatedArray entities of the module's type, scalars
-# become annotated single entities, and named lists carry a `list`
-# annotation naming their source so records can represent executions
-# properly.  Entity options (e.g. organism) flow to Entity#setup so
-# contained-array caching and list/singleton dispatch behave as Scout
-# expects.
-def annotate_receiver(mod, entity, entity_options = nil, list_name = nil)
-  entity_options = parse_entity_options(entity_options) if String === entity_options
-  entity_options = entity_options.merge(list: list_name.to_s) if list_name && entity_options
-  if Array === entity
-    mod.setup(entity, entity_options || {})
-  else
-    mod.setup(entity.to_s, entity_options || {})
-  end
-end
-
-def parse_entity_options(entity_options)
-  return entity_options if Hash === entity_options
-  require 'json'
-  JSON.parse(entity_options)
-rescue JSON::ParserError
-  raise ScoutException, "entity_options must be a JSON object: #{entity_options.inspect}"
-end
-
-
-def run_entity_property(entity_type:, property:, entity:, arguments: {},
-                        entity_options: nil, update: false, list_name: nil,
-                        job: nil, agent: 'Cortex')
-  job, jobs = entity_property_job(entity_type: entity_type, property: property,
-                                  entity: entity, arguments: arguments,
-                                  entity_options: entity_options, list_name: list_name)
-  jobs = Array === jobs ? jobs.compact : [jobs].compact
-  jobs.each { |j| j.clean if update }
-  jobs.each { |j| j.run unless j.done? }
-
-  defn = property_definition(entity_type, property) || {}
-  vector_run = %w[both array].include?(defn['property_type'].to_s)
-  scalar_receiver = !(Array === entity)
-
-  result = if vector_run
-             # :both receivers (scalar or list) execute ONE vector Step whose
-             # body already receives `entity`/`entity_list`; the loaded value
-             # IS the answer.  A scalar receiver's body may return the value
-             # for the one-member list as a one-element array: unwrap it.
-             value = job.load
-             value = value.first if scalar_receiver && Array === value && value.length == 1
-             value
-           else
-             values = jobs.collect(&:load)
-             if scalar_receiver && values.length == 1
-               values.first
+      jobs = if vector && Array === entity
+               [mod.job(property.to_sym, 'Default', args.merge(list: entity))]
+             elsif vector
+               # Scalar receiver over a `:both` property runs through the same
+               # single vector Step shape (jobname `Default`) so identity and
+               # caching stay uniform; the wrapper unwraps the one-member result.
+               [mod.job(property.to_sym, 'Default', args.merge(list: annotate_receiver(mod, [entity], entity_options, list_name)))]
              else
-               values
+               Array(entity).collect { |e| mod.job(property.to_sym, e, args) }
              end
-           end
-
-  # Execution registry: the property Step stays the evidence producer; the
-  # record only references it.  list receivers also register the named
-  # list execution itself.
-
-  # Producer selection uses `vector_run` (property type), never
-  # `Array === job`, which cannot tell a one-element vector run from a
-  # fan-out; every record must point at a real Step.
-  if list_name
-    record_property_execution(entity_type: entity_type, property: property, receiver: "list:#{entity_type}_#{list_name}",
-                              entity: nil, list_name: list_name, arguments: arguments || {},
-                              defn: defn, update: update, producer: vector_run ? jobs.first : jobs.first, agent: agent)
-    member_job = vector_run ? ->(_i) { jobs.first } : ->(i) { jobs[i] }
-    members = Array(entity)
-    members.each_with_index do |member, i|
-      record_property_execution(entity_type: entity_type, property: property, receiver: member.to_s,
-                                entity: member.to_s, list_name: list_name,
-                                arguments: arguments || {}, defn: defn,
-                                update: update, producer: member_job.call(i), agent: agent)
+      jobs
     end
-  else
-    member_job = vector_run ? ->(_i) { jobs.first } : ->(i) { jobs[i] }
-    Array(entity).each_with_index do |member, i|
-      record_property_execution(entity_type: entity_type, property: property, receiver: member.to_s,
-                                entity: member.to_s, list_name: nil,
-                                arguments: arguments || {}, defn: defn,
-                                update: update, producer: member_job.call(i), agent: agent)
+
+    # Annotate a receiver with its entity type (the persistence contract):
+    # lists become AnnotatedArray entities of the module's type, scalars
+    # become annotated single entities, and named lists carry a `list`
+    # annotation naming their source so records can represent executions
+    # properly.  Entity options (e.g. organism) flow to Entity#setup so
+    # contained-array caching and list/singleton dispatch behave as Scout
+    # expects.
+    def annotate_receiver(mod, entity, entity_options = nil, list_name = nil)
+      entity_options = parse_entity_options(entity_options) if String === entity_options
+      entity_options = entity_options.merge(list: list_name.to_s) if list_name && entity_options
+      if Array === entity
+        mod.setup(entity, entity_options || {})
+      else
+        mod.setup(entity.to_s, entity_options || {})
+      end
     end
-  end
 
-  primary = vector_run ? jobs.first : job
+    def parse_entity_options(entity_options)
+      return entity_options if Hash === entity_options
+      require 'json'
+      JSON.parse(entity_options)
+    rescue JSON::ParserError
+      raise ScoutException, "entity_options must be a JSON object: #{entity_options.inspect}"
+    end
 
-  # A scalar receiver that executed as a ONE-MEMBER VECTOR (the :both list
-  # path) unwraps in the receipt exactly like the :single path does, so
-  # callers get the value and not [value] -- same convention the wrapper's
-  # `res[0] if Array === res && !(Array === self)` applies upstream.
-  result = result.first if vector_run && Array === result && result.length == 1 && scalar_receiver
 
-  [primary, result]
-end
+    def run_entity_property(entity_type:, property:, entity:, arguments: {},
+                            entity_options: nil, update: false, list_name: nil,
+                            job: nil, agent: 'Cortex')
+      job, jobs = entity_property_job(entity_type: entity_type, property: property,
+                                      entity: entity, arguments: arguments,
+                                      entity_options: entity_options, list_name: list_name)
+      jobs = Array === jobs ? jobs.compact : [jobs].compact
+      jobs.each { |j| j.clean if update }
+      jobs.each { |j| j.run unless j.done? }
+
+      defn = property_definition(entity_type, property) || {}
+      vector_run = %w[both array].include?(defn['property_type'].to_s)
+      scalar_receiver = !(Array === entity)
+
+      result = if vector_run
+                 # :both receivers (scalar or list) execute ONE vector Step whose
+                 # body already receives `entity`/`entity_list`; the loaded value
+                 # IS the answer.  A scalar receiver's body may return the value
+                 # for the one-member list as a one-element array: unwrap it.
+                 value = job.load
+                 value = value.first if scalar_receiver && Array === value && value.length == 1
+                 value
+               else
+                 values = jobs.collect(&:load)
+                 if scalar_receiver && values.length == 1
+                   values.first
+                 else
+                   values
+                 end
+               end
+
+      # Execution registry: the property Step stays the evidence producer; the
+      # record only references it.  list receivers also register the named
+      # list execution itself.
+
+      # Producer selection uses `vector_run` (property type), never
+      # `Array === job`, which cannot tell a one-element vector run from a
+      # fan-out; every record must point at a real Step.
+      if list_name
+        record_property_execution(entity_type: entity_type, property: property, receiver: "list:#{entity_type}_#{list_name}",
+                                  entity: nil, list_name: list_name, arguments: arguments || {},
+                                  defn: defn, update: update, producer: vector_run ? jobs.first : jobs.first, agent: agent)
+        member_job = vector_run ? ->(_i) { jobs.first } : ->(i) { jobs[i] }
+        members = Array(entity)
+        members.each_with_index do |member, i|
+          record_property_execution(entity_type: entity_type, property: property, receiver: member.to_s,
+                                    entity: member.to_s, list_name: list_name,
+                                    arguments: arguments || {}, defn: defn,
+                                    update: update, producer: member_job.call(i), agent: agent)
+        end
+      else
+        member_job = vector_run ? ->(_i) { jobs.first } : ->(i) { jobs[i] }
+        Array(entity).each_with_index do |member, i|
+          record_property_execution(entity_type: entity_type, property: property, receiver: member.to_s,
+                                    entity: member.to_s, list_name: nil,
+                                    arguments: arguments || {}, defn: defn,
+                                    update: update, producer: member_job.call(i), agent: agent)
+        end
+      end
+
+      primary = vector_run ? jobs.first : job
+
+      # A scalar receiver that executed as a ONE-MEMBER VECTOR (the :both list
+      # path) unwraps in the receipt exactly like the :single path does, so
+      # callers get the value and not [value] -- same convention the wrapper's
+      # `res[0] if Array === res && !(Array === self)` applies upstream.
+      result = result.first if vector_run && Array === result && result.length == 1 && scalar_receiver
+
+      [primary, result]
+    end
 
   end
 
