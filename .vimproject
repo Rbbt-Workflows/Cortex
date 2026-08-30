@@ -16,6 +16,8 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
   path_map
 
   entities
+
+  history
  }
  lib=lib {
   Cortex=Cortex{
@@ -28,7 +30,16 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
    lists.rb
    path_maps.rb
    storage.rb
+   activity.rb
+   activity=activity{
+    context.rb
+    investigations_facet.rb
+    lists_facet.rb
+    mentions_facet.rb
+    properties_facet.rb
+   }
    tasks=tasks{
+    activity.rb
     artifact.rb
     conversation.rb
     entity.rb

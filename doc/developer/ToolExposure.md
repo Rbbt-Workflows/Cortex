@@ -37,13 +37,15 @@ Cortex tooling" requirement from the design conversation.
 `LLM.task_tool_definition` builds each tool's JSON schema from the workflow
 definition itself:
 
-- the task `desc` block becomes the tool `description`;
+- the task description (from the `desc` block or, as in Cortex, from the
+  task entry in `README.md`'s `# Tasks` section) becomes the tool
+  `description`;
 - each `input` becomes a parameter whose description is the input
   description;
 - `required: true` inputs land in the schema's `required` array;
 - `:select` inputs surface their `select_options` as an enum.
 
-Consequence: `desc` and `input` descriptions ARE the model-facing
+Consequence: task and `input` descriptions ARE the model-facing
 documentation. They are written to be self-contained (what it does, what the
 output looks like, what to use instead for related needs), and they must not
 drift from the implementation.
@@ -58,6 +60,18 @@ cortex_search: required=[:query]
 cortex_read:   required=[:name, :type]
 cortex_write:  required=[:path, :content]
 ```
+
+## `cortex_activity`
+
+Read-only recall task (`lib/Cortex/tasks/activity.rb`, engine in
+`lib/Cortex/activity.rb`). It joins what the workspace already holds about
+ONE entity: defined properties, recorded examinations, containing named
+lists, and text mentions. No LLM, no result payloads (job references only),
+fully deterministic. Exported through `export_exec` (see `workflow.rb`), so
+it is CLI-reachable via the generic `scout cortex_activity ...` command and
+does not gain a `return_path` input. Facet selection and the extension
+point are documented in the task section of `README.md` and in
+`doc/developer/Entities.md`.
 
 ## Exported tasks automatically gain `return_path`
 
@@ -95,7 +109,9 @@ conversations and docs.
 
 Adding a task checklist:
 
-1. Write a `desc` that a model can act on without reading the code.
+1. Document the task in `README.md` (`## task_name` section); the
+  parsed first line becomes the tool description, so write it so a model
+  can act on it without reading the code.
 2. Declare `input`s with precise descriptions; mark `required: true` for
   anything the model must supply.
 3. Prefer `:select` over free strings for closed vocabularies (`type`,

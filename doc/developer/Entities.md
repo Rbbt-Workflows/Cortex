@@ -230,6 +230,19 @@ execution (`list:<type>_<list>`) plus one member record per entity, so
 an agent can ask both "was this list examined" and "was this entity
 examined".
 
+Stale property jobs are invalidated by list mutation: when
+`run_entity_property` runs with `list_name`, the list file path is resolved
+through `read_list` and every done job older than that file
+(`Path.newer?(job.path, list_path)`) is cleaned before execution, so the
+next run recomputes without `update: true`. `update: true` still
+force-cleans regardless of mtimes; a missing list file never triggers the
+clean (the task layer has already raised). Note one registry limitation:
+the list receiver record (`list:<type>_<list>`) tracks `runs` for the
+argument set but does not store the member set itself, and members
+removed from a list keep their last record until they are examined
+again; the per-member records (including newly added members) are the
+authoritative view of who was examined.
+
 ## Inline arrays vs named lists (agent guidance)
 
 The task layer accepts an inline JSON array in `entity` for backwards
@@ -239,3 +252,34 @@ the receipt gains a `note` field steering the agent toward the canonical
 receipt field changes, and named-list runs never carry it. This is a
 model-facing affordance, deliberately not an error, matching the "ideally
 list-first" requirement.
+
+## Activity report and the facet registry
+
+`Cortex.activity_report(entity_type:, entity:, facets:, limit:)`
+(`lib/Cortex/activity.rb`) is a read-only join over existing stores for ONE
+entity, exposed as the `cortex_activity` task. It dispatches over
+`Cortex::ACTIVITY_FACETS`, an ordered Hash of `name => { 'description' =>
+String, 'block' => Proc }` mirroring scout-ai's prompt-strategy registry
+(`Chat::REGISTERED_STRATEGIES`): the registry is module-level, facets live
+one per file under `lib/Cortex/activity/` and self-register at load time,
+and `activity.rb` requires them in a fixed order so section order is
+deterministic without an explicit list.
+
+Facet contract: the block receives a `Cortex::Activity::Context` (read-only
+accessors `entity_type`, `entity`, `limit`, `requested_facets`, plus
+`property_definitions`, `property_definition`, `all_examinations`,
+`entity_examinations`, `type_lists`, `list_meta`, `mentions`) and returns
+a section `{'facet' => name, 'title' => String, 'items' => [Hash...],
+'meta' => Hash}`. The dispatcher normalizes the shape and applies `limit`
+per section AFTER the facet sorts. Facets must sort items explicitly (never
+rely on glob/hash order), never embed result payloads, wall-clock time, or
+anything non-deterministic: identical inputs over an identical workspace
+must produce an identical report. Unknown facet names raise an actionable
+`ScoutException` listing the registered facets.
+
+Adding a facet: create `lib/Cortex/activity/<name>_facet.rb`, call
+`Cortex.register_activity_facet(<name>, description:, &block)` at load
+time, and add the `require_relative` line to the fixed require list at the
+top of `lib/Cortex/activity.rb`. Nothing else changes (the task and its
+`README.md` section stay untouched). Test-local facets can register the same way
+without touching core files; see `test/Cortex/test_activity.rb`.

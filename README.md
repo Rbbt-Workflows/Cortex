@@ -18,7 +18,7 @@ it.
 
 ## Workspace layout
 
-Resources live under `var/cortex/`, separated into four namespaces:
+Resources live under `var/cortex/`, separated into six namespaces:
 
 - `conversations/` — working, exploratory research conversations. This is
   where agents reason; conversations are allowed to be messy.
@@ -47,6 +47,18 @@ Resources live under `var/cortex/`, separated into four namespaces:
   `created_at`, `job`). Lists are read and written with
   `cortex_write_list`/`cortex_read_list` (and `cortex_read type=lists`),
   through the same path resolution as every other namespace.
+- `properties/` — the execution registry for entity properties, one JSON
+  record per `(entity_type, property, receiver)` under
+  `properties/<Type>/<property>/<receiver>.json`. A receiver is either an
+  entity id (`Tp53`) or `list:<Type>_<list>` for a named-list run. Each
+  record holds an `examinations` array, one entry per distinct argument set,
+  with its run count, first/last run, `property_job` (the evidence-producing
+  Scout Step), definition version/digest, and a result fingerprint. Records
+  never store result copies: the Step remains the source of truth, and
+  execution records are engine-written by `cortex_entity_property` itself.
+  Explore them with `cortex_list type=properties`, `cortex_read
+  type=properties <Type>/<property>/<receiver>`, and `cortex_search
+  type=properties`.
 
 Dot-directories (`.meta`, `.history`) are internal and never listed.
 
@@ -135,6 +147,13 @@ The intended agent workflow over the workspace is:
    whole documents.
 6. **Manage** — `cortex_rename`, `cortex_move`, `cortex_remove` only when
    deliberately reorganizing existing resources.
+7. **Compute evidence** — `cortex_entity_property` to run a property for an
+   entity or a named list and get a receipt citing the producing job;
+   `cortex_write_list` / `cortex_read_list` to name entity sets once and run
+   properties over them by reference.
+8. **Recall** — `cortex_activity` to join everything the workspace already
+   holds about ONE entity (defined properties, recorded examinations,
+   containing lists, mentions) before deciding what to investigate next.
 
 Two disciplines make this work well:
 
@@ -148,6 +167,42 @@ name in `briefs/` (it does not need to contain the agent name), and is
 referenced as `Agent/brief` — e.g. `Worker/bash-math` means agent
 `Worker` prepared by brief `bash-math`.
 
+## Entities and evidence
+
+Cortex deliberately ships no scientific semantics of its own, but it does
+provide the substrate for them: **executable entity properties**. An entity
+type exists implicitly from its first property; a property is trusted Ruby
+code plus a metadata schema, addressed `entities/<Type>/<property>`. Running
+it for a concrete entity or list produces a real, cacheable Scout Step with
+full provenance — so numerical claims can cite a job instead of
+transcribing numbers.
+
+The intended evidence workflow is:
+
+1. Define (or discover) a property: `cortex_property_define`, after checking
+   `cortex_property_list` (definitions) and `cortex_property_validate`
+   (candidate checks + optional smoke run).
+2. Name the entity set: `cortex_write_list` (discover with
+   `cortex_list type=lists`).
+3. Execute: `cortex_entity_property` with `entity:` for one entity or
+   `list:` for the named set; the receipt cites `property_job`,
+   `definition_version`, and `definition_digest`.
+4. Check what is already known: `cortex_list type=properties` (which
+   entities and lists have been examined, with which arguments and by which
+   jobs) and `cortex_activity` (the same joined around ONE entity, plus the
+   lists containing it and the conversations/briefs/artifacts that mention
+   it).
+
+Versioning mirrors artifacts: definitions carry `.meta` (active version,
+digest, history) and `.history` snapshots; changes bump the digest, which
+invalidates every computation of that property. Executions of a mutated
+named list are also invalidated: a done property job older than the list
+file is cleaned and recomputed, so list edits never serve stale evidence.
+
+Discipline: never transcribe numerical evidence when a property can return
+it — claims and artifacts should cite the property job that produced their
+evidence.
+
 ## Receipts and provenance
 
 `cortex_continue` and `cortex_brief` return a JSON receipt
@@ -156,7 +211,7 @@ content: <answer>}`. The `job=` field is a provenance edge from the
 parent conversation into the child execution (its full chat, tool calls,
 and logs). Because these edges are recorded in the conversation itself,
 downstream analysis can reconstruct the execution graph without scanning
-the workspace. 
+the workspace.
 
 ## Examples
 
@@ -188,6 +243,23 @@ Extract a durable result:
 ```bash
 scout workflow task Cortex cortex_write --path claims/C42.md \
     --content "Claim: ... (evidence, context, caveats)"
+```
+
+Run a property for one entity and for a named list:
+
+```bash
+scout workflow task Cortex cortex_entity_property --entity_type Gene \
+    --property activity_in_treatment --entity TP53 \
+    --arguments '{"treatment": "DMBA"}'
+
+scout workflow task Cortex cortex_entity_property --entity_type TF \
+    --property trajectory_in_treatment --list TF/panel
+```
+
+Recall everything known about one entity before investigating it:
+
+```bash
+scout workflow task Cortex cortex_activity --entity_type TF --entity TP53
 ```
 
 # Tasks
@@ -341,7 +413,7 @@ Artifact `.meta` gets a version record (mode `move`) with from/to maps. The
 target must not already exist. Rename changes the logical name, move changes
 the path map — the two stay distinct.
 
-## properties listing (cortex_list / cortex_search)
+## properties listing (cortex_list / cortex_search / cortex_activity)
 See which entity properties have already been investigated
 
 `cortex_list type=properties` returns one row per execution record
@@ -457,7 +529,9 @@ metadata. The step is content-addressed on the entity, the arguments, and
 the definition identity (version/digest), so an identical call replays
 from cache, while any change to the definition or a dependency invalidates
 the path. `update: true` cleans and recomputes the property job at the
-same path.
+same path. Named-list runs also self-invalidate: when the list file is
+newer than a done property job computed from it, that job is cleaned and
+recomputed, so editing a list never serves stale member results.
 
 **The canonical multi-entity workflow is list-first**: define a named list
 with `cortex_write_list` once (discover existing ones with
@@ -478,3 +552,47 @@ multi-entity work.
 Discipline: never transcribe numerical evidence when a property can return
 it — claims and artifacts should cite the property job that produced their
 evidence.
+
+## cortex_activity
+Report accumulated workspace activity around ONE entity
+
+Structured, deterministic join over what the Cortex workspace already knows
+about a single entity: no LLM, no new results, read-only recall. Sections
+(facets): `properties` (defined and active properties for the entity type),
+`investigations` (which properties have been examined for this exact entity,
+with which arguments, how often, and the producing job reference — result
+payloads are never included; use `cortex_entity_property` to obtain them),
+`lists` (named entity lists of this type containing the entity), and
+`mentions` (conversations, briefs and artifacts that mention the entity id).
+
+The `facets` input accepts a comma-separated list; empty means all, in a
+fixed order. Identical inputs over an identical workspace always produce
+identical output. The report is a JSON object `{entity, facets, facet_names}` where each
+facet section is `{facet, title, items, meta}` with `meta.total` /
+`meta.shown` recording what the `limit` (default 10) truncated. The four
+registered facets:
+
+- `properties` — every defined property for the entity type: name, result
+  type, arity (`single`/`array`/`both`), definition version and digest,
+  active flag, and path map. This is the inventory of dimensions through
+  which the entity can be examined, regardless of whether it has been.
+- `investigations` — every recorded examination whose receiver is exactly
+  this entity or that has it as a list member: property, argument set (and
+  digest), run count, first/last run, and the `property_job` reference.
+  Direct runs and per-member list runs are aggregated, so a list run on
+  `TF/panel` surfaces inside the report of each member. Result payloads are
+  never included; call `cortex_entity_property` to obtain or recompute one.
+- `lists` — named lists of this entity type that contain the entity, with
+  member counts and descriptions.
+- `mentions` — conversations, briefs, and artifacts that mention the entity
+  id, with short match snippets (the same index `cortex_search` uses).
+
+Use it where you would otherwise run several listing/search queries by
+hand: before designing a new investigation, to avoid re-examining a
+question and to spot an unexplored property or an unexpected list
+membership. It complements `cortex_list type=properties` (registry-wide,
+all receivers) with an entity-centric view, and complements
+`cortex_entity_property` (computation) with pure recall.
+
+The facet set is extendable without touching the dispatcher: add a file
+under `lib/Cortex/activity/` (see `doc/developer/Entities.md`).

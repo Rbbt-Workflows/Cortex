@@ -30,6 +30,9 @@ inside Cortex, or you are an agent that just got the Cortex tools.
     already been investigated, with which arguments
 11. `cortex_write_list` / `cortex_read_list` — name entity lists once and
     run properties over them by reference
+12. `cortex_activity` — deterministic recall of everything already known
+    about ONE entity (defined properties, examinations, containing lists,
+    mentions); no LLM, no recomputation
 
 Rules of thumb:
 
@@ -211,8 +214,26 @@ the path map.
 
 ---
 
+## `cortex_activity`  -  recall everything around one entity
+
+Read-only join over existing stores: for one `entity_type`/`entity` it
+reports the properties defined for that type, which of them have already
+been examined for that exact entity (with argument combinations, run
+counts and the producing job reference), the named lists of that type
+containing the entity, and the conversations/briefs/artifacts that mention
+the entity id. Result payloads are never included: follow up with
+`cortex_entity_property` to obtain them. `facets` selects sections
+(comma-separated; empty means all, in a fixed order), `limit` caps items
+per section. Identical inputs over an identical workspace produce
+identical output. Deterministic text matching only: no LLM, no semantic
+ranking, no entity extraction.
+
 ## Caching note
 
 Like every Scout task, results are cached per input combination. If the
 workspace changed since a previous identical call, use a different input
 (e.g. a different `offset`/`limit`) or clear the job.
+
+Named-list exceptions: if a `cortex_write_list`-managed list file changes
+after a `cortex_entity_property` run, the next identical call detects the
+stale jobs by mtime and recomputes automatically.

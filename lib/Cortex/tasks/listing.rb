@@ -5,20 +5,6 @@
 
 module Cortex
 
-  desc <<-EOF
-Discover what exists in the Cortex workspace: the always-current inventory.
-
-Lists one namespace as a metadata-only table: conversations, briefs, artifacts,
-entities (property definitions), lists (named entity lists), properties
-(property executions: which entities and lists have already been examined, how
-often, and by which jobs), or all.
-
-This is the discovery entry point before reading anything: check lists before
-creating one (to reuse an existing list), check properties before running a
-property (to avoid re-examining an entity), and check entities to see which
-properties are defined. Listings are cached per job; use the update flag (or a
-fresh --jobname) when a freshly written resource must appear.
-  EOF
   input :type, :select, "Namespace to list: conversations, briefs, artifacts, entities, lists, properties (executions), or all (every namespace with counts)", 'all', select_options: %w(conversations briefs artifacts entities lists properties all)
   input :prefix, :string, 'Only names starting with this prefix', nil
   input :offset, :integer, 'Skip the first N entries (pagination)', 0
@@ -28,12 +14,6 @@ fresh --jobname) when a freshly written resource must appear.
     listing_text type, prefix, offset, limit
   end
 
-  desc <<-EOF
-Find conversations, artifacts, entity lists, property executions or definitions
-by keyword (multiple terms are ANDed). Snippets only: read the matching resource
-for full content. Searching lists and properties by entity name is the fast way
-to find whether an entity has already been examined.
-  EOF
   input :query, :string, 'Keyword(s) to search for; multiple terms are ANDed', nil, required: true
   input :type, :select, "Restrict search: conversations, briefs, artifacts, lists, properties (executions), or all", 'all', select_options: %w(conversations briefs artifacts lists properties all)
   input :limit, :integer, 'Maximum number of matches to return', 20

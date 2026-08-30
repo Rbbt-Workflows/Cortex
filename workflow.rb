@@ -83,6 +83,7 @@ module Cortex
   end
 
   require 'Cortex/tasks/conversation'
+  require 'Cortex/tasks/activity'
   require 'Cortex/tasks/listing'
   require 'Cortex/tasks/artifact'
   require 'Cortex/tasks/list'
@@ -93,7 +94,8 @@ module Cortex
          :cortex_write_list, :cortex_read_list,
          :cortex_property_list, :cortex_property_read, :cortex_property_history,
          :cortex_property_validate, :cortex_property_define, :cortex_property_update,
-         :cortex_property_remove, :cortex_entity_property
+         :cortex_property_remove, :cortex_entity_property,
+         :cortex_activity
 end
 
 # Entity engine (storage + lifecycle + compiler) followed by the thin task

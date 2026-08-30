@@ -1385,7 +1385,20 @@ module Cortex
                                       entity: entity, arguments: arguments,
                                       entity_options: entity_options, list_name: list_name)
       jobs = Array === jobs ? jobs.compact : [jobs].compact
-      jobs.each { |j| j.clean if update }
+      # List-mutation invalidation: a done property job older than the named
+      # list file it was computed from is stale and must be recomputed even
+      # without update:true.  update:true still force-cleans everything.
+      # A missing list file never triggers the blind clean (the task layer has
+      # already resolved the list and raised if it does not exist).
+      stale_list = if update || list_name.to_s.empty?
+                     nil
+                   else
+                     _e, _m, list_path = read_list(entity_type, list_name)
+                     File.exist?(list_path) ? list_path : nil
+                   end
+      jobs.each do |j|
+        j.clean if update || (stale_list && j.done? && Path.newer?(j.path, stale_list))
+      end
       jobs.each { |j| j.run unless j.done? }
 
       defn = property_definition(entity_type, property) || {}

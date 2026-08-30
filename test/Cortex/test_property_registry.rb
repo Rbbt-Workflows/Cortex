@@ -281,4 +281,90 @@ class TestPropertyRegistry < Test::Unit::TestCase
                                  entity_options: { organism: 'Hsa' })
     assert_equal 'Hsa', as_result_hash(result)['organism']
   end
+
+  # ------------------------------------------------------------------
+  # List-mutation invalidation
+  # ------------------------------------------------------------------
+  # Body is non-deterministic ('Time.now.to_f.to_s'): an identical value
+  # means the cached job was reused, a different value means it was
+  # recomputed. List mtimes are future-dated so that Path.newer? sees
+  # job_path < list_file even on coarse filesystems (equal mtimes are
+  # treated as fresh by the scout-gear idiom).
+
+  def run_list_prop(property, list_name)
+    _entities, _meta, list_path = Cortex.read_list('TF', list_name)
+    members = File.readlines(list_path).map(&:strip).reject(&:empty?)
+    job, result = Cortex.run_entity_property(entity_type: 'TF', property: property,
+                                             entity: members, arguments: {},
+                                             list_name: list_name, update: false)
+    [job, result, list_path]
+  end
+
+  def touch_future(path)
+    File.utime(Time.now + 10, Time.now + 10, path)
+  end
+
+  def test_list_mutation_invalidates_single_dispatch
+    define('TF', 'clock', body: 'Time.now.to_f.to_s',
+           property_type: 'single', result_type: 'string')
+    Cortex.write_list('TF', 'MUT1', %w[FOXO1 TP53], job: 'test_registry')
+
+    job1, result1, list_path = run_list_prop('clock', 'MUT1')
+    assert_equal 2, result1.length
+
+    File.write(list_path, "FOXO1\nTP53\nMYC\n")
+    touch_future(list_path)
+
+    job2, result2, = run_list_prop('clock', 'MUT1')
+    assert_equal 3, result2.length
+    # Every member was recomputed: none of the new values can equal a
+    # value from the cached run (body is Time.now.to_f.to_s).
+    assert result2.none? { |v| result1.include?(v) },
+           "expected recompute, got cached #{result2.inspect}"
+  end
+
+  def test_list_mutation_invalidates_both_dispatch
+    define('TF', 'vclock', body: 'Time.now.to_f.to_s',
+           property_type: 'both', result_type: 'string')
+    Cortex.write_list('TF', 'MUT2', %w[TP53 CDKN1A], job: 'test_registry')
+
+    _job1, result1, list_path = run_list_prop('vclock', 'MUT2')
+
+    File.write(list_path, "TP53\nCDKN1A\nMYC\n")
+    touch_future(list_path)
+
+    _job2, result2, = run_list_prop('vclock', 'MUT2')
+    assert result2 != result1, 'expected recompute of the vector job'
+  end
+
+  def test_untouched_list_keeps_cache
+    define('TF', 'clock3', body: 'Time.now.to_f.to_s',
+           property_type: 'single', result_type: 'string')
+    Cortex.write_list('TF', 'MUT3', %w[FOXO1 TP53], job: 'test_registry')
+
+    job1, result1, = run_list_prop('clock3', 'MUT3')
+    job2, result2, = run_list_prop('clock3', 'MUT3')
+    assert_equal result1, result2
+    # Same jobs, not cleaned/recreated between the two runs.
+    paths1 = Array(job1).map(&:path).sort
+    paths2 = Array(job2).map(&:path).sort
+    assert_equal paths1, paths2
+    assert Array(job2).all?(&:done?)
+  end
+
+  def test_update_true_still_force_recomputes
+    define('TF', 'clock4', body: 'Time.now.to_f.to_s',
+           property_type: 'single', result_type: 'string')
+    Cortex.write_list('TF', 'MUT4', %w[FOXO1 TP53], job: 'test_registry')
+
+    _j1, result1, = run_list_prop('clock4', 'MUT4')
+    _j2, result2, = run_list_prop('clock4', 'MUT4')
+    assert_equal result1, result2 # untouched: cached
+
+    members = Cortex.read_list('TF', 'MUT4').first
+    _j3, result3, = Cortex.run_entity_property(entity_type: 'TF', property: 'clock4',
+                                               entity: members, arguments: {},
+                                               list_name: 'MUT4', update: true)
+    assert result3 != result2, 'update:true must force recompute'
+  end
 end
