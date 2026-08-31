@@ -22,6 +22,15 @@
 # non-deterministic: identical inputs + identical workspace => identical
 # report. The limit is applied by the dispatcher, after the facet sorts.
 #
+# Pagination contract (set by the dispatcher): every section meta carries
+#   total    - how many items the facet produced (the facet's full count;
+#              bounded-scan facets document that their count covers the
+#              bounded sample, see mentions)
+#   shown    - how many items are actually in the section (<= total)
+#   has_more - true when shown < total ("there are more than you see")
+# so an agent can always distinguish "only three exist" from "twenty
+# exist, three shown".
+#
 # Adding a facet: write lib/Cortex/activity/<name>_facet.rb, call
 # `Cortex.register_activity_facet(<name>, description:, &block)` at load
 # time, and add the require line to the FIXED require list at the top of
@@ -84,8 +93,10 @@ require_relative 'activity/mentions_facet'
       section['meta']  = {} unless Hash === section['meta']
       total = section['items'].length
       section['items'] = section['items'].first(limit) if limit && limit > 0
+      shown = section['items'].length
       section['meta']['total'] = total
-      section['meta']['shown'] = section['items'].length
+      section['meta']['shown'] = shown
+      section['meta']['has_more'] = shown < total
       section
     end
 

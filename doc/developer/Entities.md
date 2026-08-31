@@ -265,17 +265,36 @@ one per file under `lib/Cortex/activity/` and self-register at load time,
 and `activity.rb` requires them in a fixed order so section order is
 deterministic without an explicit list.
 
-Facet contract: the block receives a `Cortex::Activity::Context` (read-only
+Facet contract: the block receives a `Cortex::ActivityContext` (read-only
 accessors `entity_type`, `entity`, `limit`, `requested_facets`, plus
-`property_definitions`, `property_definition`, `all_examinations`,
-`entity_examinations`, `type_lists`, `list_meta`, `mentions`) and returns
-a section `{'facet' => name, 'title' => String, 'items' => [Hash...],
-'meta' => Hash}`. The dispatcher normalizes the shape and applies `limit`
-per section AFTER the facet sorts. Facets must sort items explicitly (never
-rely on glob/hash order), never embed result payloads, wall-clock time, or
-anything non-deterministic: identical inputs over an identical workspace
-must produce an identical report. Unknown facet names raise an actionable
-`ScoutException` listing the registered facets.
+`property_definitions`, `property_definition`, `investigation_status`,
+`examinations`, `entity_examinations`, `list_entries`, `list_meta`,
+`mentions`) and returns a section `{'facet' => name, 'title' => String,
+'items' => [Hash...], 'meta' => Hash}`. The dispatcher normalizes the shape
+and applies `limit` per section AFTER the facet sorts. Facets must sort
+items explicitly (never rely on glob/hash order), never embed result
+payloads, wall-clock time, or anything non-deterministic: identical inputs
+over an identical workspace must produce an identical report. Unknown facet
+names raise an actionable `ScoutException` listing the registered facets.
+
+Dispatcher pagination contract: every section `meta` carries `total` (the
+facet's full item count), `shown` (items actually returned, `<= limit`),
+and `has_more` (`shown < total`). A bounded report therefore never
+masquerades as a complete count; agents distinguish "three exist" from
+"twenty exist, three shown" without a second call. Facets that bound their
+own scan (mentions) state so in their `meta.note`; their `total` covers the
+bounded sample, not the corpus.
+
+Investigation availability (`ActivityContext#investigation_status`):
+investigations are cross-checked against the definitions that exist NOW,
+yielding `active`, `older` (a newer version is current; the recorded
+digest identifies the code that actually produced the recorded evidence),
+or `removed` (no active definition). This deliberately separates the
+historical fact (the property was executed — the examination record is
+never rewritten) from the current capability (it can be executed as-is).
+Map identifiers in facet items are bare strings (`current`, `lib`, ...)
+everywhere; `Entities#map_tag`'s colon-prefixed form is display-only and
+must not leak into facet items.
 
 Adding a facet: create `lib/Cortex/activity/<name>_facet.rb`, call
 `Cortex.register_activity_facet(<name>, description:, &block)` at load

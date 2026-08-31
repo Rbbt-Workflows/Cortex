@@ -40,6 +40,32 @@ module Cortex
       Cortex.property_definition(entity_type, property)
     end
 
+    # Current capability of an investigated property, cross-checked against
+    # the definitions that exist NOW for the entity type. This separates two
+    # facts the activity report must never conflate:
+    #   historical fact  - the property WAS executed (the examination record);
+    #   current capability - the property CAN be executed now.
+    #   'active'  - definition exists, is active, and is the recorded version
+    #   'older'   - definition exists and is active, but a newer version is
+    #               current (the recorded evidence was produced by an
+    #               earlier version; definition_digest identifies that code)
+    #   'removed' - no active definition exists anymore (tombstoned or
+    #               deleted): the investigation is historical only
+    def investigation_status(property, version = nil, _digest = nil)
+      @investigation_status ||= {}
+      key = "#{property}|#{version}"
+      @investigation_status[key] ||= begin
+        defn = property_definition(property)
+        if defn.nil? || !defn['active']
+          'removed'
+        elsif version.to_s.empty? || defn['version'].to_s == version.to_s
+          'active'
+        else
+          'older'
+        end
+      end
+    end
+
     # Flat examination list for every entity type/property/receiver
     # (lib/Cortex/properties.rb #all_examinations).
     def examinations
@@ -81,17 +107,26 @@ module Cortex
       {}
     end
 
-    # Deterministic text matches of the entity id across conversations,
-    # briefs and artifacts, reusing the existing search machinery.
-    # namespace_entries order is glob-derived, so results are sorted
-    # explicitly before the limit is applied.
+    # Raw lexical mentions of the entity id across conversations, briefs and
+    # artifacts, reusing the existing search machinery.
+    #
+    # Mentions are a discovery hint ONLY: hits include incidental occurrences
+    # (tool-call transcripts, table rows). Never infer presence, absence,
+    # importance or scientific relevance from the mention count; read the
+    # underlying resource. Deterministic ordering, no ranking, no LLM.
+    #
+    # The scan is bounded by SCAN_MULTIPLIER * limit per namespace so the
+    # facet stays cheap on large stores; meta.total/shown therefore describe
+    # the bounded sample, not the corpus.
+    SCAN_MULTIPLIER = 10
+
     def mentions(limit = nil)
       limit ||= @limit
       found = []
       { 'conversations' => :search_conversations,
         'briefs' => :search_text_namespace,
         'artifacts' => :search_text_namespace }.each do |ns, search|
-        rows = Cortex.send(search, entity, ns, limit)
+        rows = Cortex.send(search, entity, ns, SCAN_MULTIPLIER * limit)
         rows.each do |type, name, map, match|
           found << { 'type' => type.to_s, 'name' => name.to_s,
                      'map' => map.to_s, 'match' => match.to_s }
@@ -103,4 +138,3 @@ module Cortex
   end
 
 end
-

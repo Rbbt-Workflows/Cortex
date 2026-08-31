@@ -568,8 +568,10 @@ payloads are never included; use `cortex_entity_property` to obtain them),
 The `facets` input accepts a comma-separated list; empty means all, in a
 fixed order. Identical inputs over an identical workspace always produce
 identical output. The report is a JSON object `{entity, facets, facet_names}` where each
-facet section is `{facet, title, items, meta}` with `meta.total` /
-`meta.shown` recording what the `limit` (default 10) truncated. The four
+facet section is `{facet, title, items, meta}`; `meta.total` is the facet's
+full count, `meta.shown` what the `limit` (default 10) actually returned,
+and `meta.has_more` is true when shown < total, so an agent can always tell
+"only three exist" from "twenty exist, three shown". The four
 registered facets:
 
 - `properties` — every defined property for the entity type: name, result
@@ -582,10 +584,20 @@ registered facets:
   Direct runs and per-member list runs are aggregated, so a list run on
   `TF/panel` surfaces inside the report of each member. Result payloads are
   never included; call `cortex_entity_property` to obtain or recompute one.
+  Each item carries a `status` separating the historical fact (the property
+  was executed) from the current capability: `active` (the recorded version
+  is the current active definition and can be re-run), `older` (a newer
+  definition version is current; the recorded `definition_digest` identifies
+  the code that actually produced the recorded evidence), and `removed` (no
+  active definition exists anymore; the record is kept as history only).
 - `lists` — named lists of this entity type that contain the entity, with
   member counts and descriptions.
 - `mentions` — conversations, briefs, and artifacts that mention the entity
   id, with short match snippets (the same index `cortex_search` uses).
+  Raw lexical matches are a discovery hint ONLY: hits include incidental
+  occurrences (tool-call transcripts, table rows), so never infer presence,
+  absence, importance or scientific relevance from the mention count — read
+  the underlying resource.
 
 Use it where you would otherwise run several listing/search queries by
 hand: before designing a new investigation, to avoid re-examining a

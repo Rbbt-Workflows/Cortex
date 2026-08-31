@@ -33,17 +33,43 @@ the removal either.
 
 ## Activity report (`cortex_activity`)
 
-Planned progression beyond the deterministic v1 facets (properties,
-investigations, lists, mentions):
+Deliberate scope decisions, kept here so they are not re-litigated:
+
+- Keep the four facets (properties, investigations, lists, mentions). They
+  answer what-can-I-ask / what-have-I-asked / what-is-it-grouped-with /
+  where-does-it-occur; richer facets (claims, artifacts, relationships)
+  should emerge through investigation follow-ups, not new facet types, and
+  only when a real agent workload demonstrates a gap.
+- Keep mentions raw. De-noising (skipping tool-call JSON, incidental table
+  rows) is a semantic-indexing problem; the facet's contract is "where does
+  this token occur", and its note says so.
+- Keep the report deterministic and shallow: no result payloads, no
+  stochastic sampling inside `cortex_activity` itself. Any relevance-biased
+  projection belongs in a separate operation.
+- `cortex_activity` stays Cortex-store-scoped. Mirroring repository
+  artifacts into the workspace just to improve `mentions` coverage was
+  considered and rejected; a general source model (Cortex resource /
+  repository resource / KnowledgeBase resource with explicitly configured
+  readable sources) is the direction if coverage ever needs to widen.
+
+Planned progression beyond the deterministic v1 facets:
 
 - Relationship facet: co-occurring entities across lists and examination
   records (MYC/FOXO3 next to TP53).
 - Selected-results facet: small representative excerpts from high-value
   examinations, keeping result payloads out of the report by default.
 - Preferential sampling (recent investigations, under-explored properties,
-  recently modified artifacts) so repeated reports on the same entity can
-  surface different facets; deliberately stochastic only after the
-  deterministic core is trusted.
+  recently modified artifacts) as a SEPARATE stochastic operation, never
+  inside `cortex_activity` itself.
+
+Implemented from the AGS-use advice (2026-09):
+
+- Investigations carry `status` (active / older / removed): historical
+  fact vs current capability, records never deleted.
+- Section meta carries `total` / `shown` / `has_more`; `total` is the
+  facet's full count, never the bounded-scan count (mentions bound their
+  own scan by 10x limit and say so).
+- Map identifiers normalized to bare strings across every facet.
 
 ## Test-suite hygiene
 

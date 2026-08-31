@@ -365,10 +365,14 @@ module Cortex
         next if seen[meta_path]
         seen[meta_path] = true
         out << { entity_type: meta['entity_type'], type: meta['entity_type'],
+                 # Map identifiers are normalized to bare names everywhere in
+                 # Cortex output ('current', 'lib', ...): one representation,
+                 # matching the map column of cortex_list/cortex_search and
+                 # the activity facets.
                  property: meta['property'],
                  meta: meta, meta_path: meta_path,
                  body_path: meta_path.sub(%r{/\.meta/}, '/').sub(%r{\.json\z}, '.rb'),
-                 map: map_tag(map) }
+                 map: map.to_s }
       end
       out.sort_by { |d| [d[:entity_type], d[:property]] }
     end

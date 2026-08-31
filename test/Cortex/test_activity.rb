@@ -158,6 +158,63 @@ class TestCortexActivity < Test::Unit::TestCase
     assert_equal 2, section(r, 'investigations')['items'].length
   end
 
+  def test_meta_reports_corpus_total_and_has_more
+    define(ACT_TYPE, 'a1', body: "'x'", result_type: 'string')
+    define(ACT_TYPE, 'a2', body: "'x'", result_type: 'string')
+    define(ACT_TYPE, 'a3', body: "'x'", result_type: 'string')
+    r = report(limit: 2)
+    props = section(r, 'properties')
+    assert_equal 5, props['meta']['total'], 'total = full facet count, not the bounded page'
+    assert_equal 2, props['meta']['shown']
+    assert_equal true, props['meta']['has_more'], 'shown < total must be visible'
+    # a third distinct investigation exists (different arguments), so the
+    # bounded investigations section also reports has_more
+    run_prop(ACT_TYPE, 'len', 'FOXO1', arguments: { scale: 2 })
+    r2 = report(limit: 2)
+    assert_equal true, section(r2, 'investigations')['meta']['has_more']
+    assert_equal 3, section(r2, 'investigations')['meta']['total']
+
+    full = report
+    assert_equal false, section(full, 'properties')['meta']['has_more']
+    assert_equal section(full, 'properties')['items'].length,
+                 section(full, 'properties')['meta']['shown']
+  end
+
+  def test_investigations_mark_removed_definitions
+    run_prop(ACT_TYPE, 'expr', 'FOXO1')
+    item = section(report, 'investigations')['items'].find { |i| i['property'] == 'expr' }
+    assert_equal 'active', item['status']
+
+    Cortex.remove_property(ACT_TYPE, 'expr', expected_version: 1,
+                           agent: 't', job: 't')
+    item = section(report, 'investigations')['items'].find { |i| i['property'] == 'expr' }
+    assert item, 'the historical investigation record is kept, never deleted'
+    assert_equal 'removed', item['status']
+    assert_match(%r{ProbeAct/expr/FOXO1}, item['property_job'])
+  end
+
+  def test_investigations_mark_older_definitions
+    run_prop(ACT_TYPE, 'expr', 'FOXO1')
+    Cortex.update_property(ACT_TYPE, 'expr', expected_version: 1,
+                           body: "'CHANGED'", result_type: 'string',
+                           agent: 't', job: 't')
+    item = section(report, 'investigations')['items'].find { |i| i['property'] == 'expr' }
+    assert_equal 'older', item['status'], 'a newer active version is current'
+    assert_equal '1', item['definition_version'],
+                 'the recorded version identifies the code that produced the evidence'
+  end
+
+  def test_map_identifiers_are_normalized_across_facets
+    r = report
+    maps = []
+    r['facets'].each do |s|
+      s['items'].each { |i| maps << i['map'] if i.is_a?(Hash) && i.key?('map') }
+    end
+    assert !maps.empty?, 'fixture should carry map tags'
+    assert(maps.all? { |m| m.to_s !~ /\A:/ },
+           "map identifiers must be bare (no leading colon): #{maps.inspect}")
+  end
+
   def test_extensibility_local_registration
     Cortex.register_activity_facet('local_probe', 'test-local facet') do |ctx|
       { 'facet' => 'local_probe', 'title' => 'local',

@@ -1,6 +1,12 @@
 require_relative '../activity'
 
-# Defined/active properties for the entity type.
+# Defined/active properties for the entity type, plus the availability status
+# of every property that has ever been investigated for entities of the type:
+# investigations of removed/tombstoned definitions are marked 'removed' rather
+# than silently presented as executable. The properties facet answers
+# "what CAN I ask"; the status on investigations answers "is that still
+# possible". Both facts coexist: the historical execution record stays
+# untouched.
 module Cortex
   register_activity_facet 'properties', 'Defined and active entity properties for the entity type' do |context|
     defs = context.property_definitions

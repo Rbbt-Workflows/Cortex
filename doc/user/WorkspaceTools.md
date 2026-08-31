@@ -228,6 +228,26 @@ per section. Identical inputs over an identical workspace produce
 identical output. Deterministic text matching only: no LLM, no semantic
 ranking, no entity extraction.
 
+Reading the result:
+
+- Section meta: `total` is the facet's full count, `shown` is what the
+  `limit` actually returned, `has_more` is true when shown < total. This
+  is how you tell "only three investigations exist" from "twenty exist,
+  three shown" (raise `limit` or query `cortex_list type=properties` for
+  the rest).
+- `investigations[].status` separates the historical fact from the current
+  capability: `active` (re-runnable now, recorded version is current),
+  `older` (a newer definition version is current; the recorded
+  `definition_digest` identifies the code that produced the recorded
+  evidence), `removed` (definition was removed; the record is history
+  only, re-define before re-running).
+- `mentions` are raw lexical matches and a discovery hint only: hits
+  include incidental occurrences (tool-call transcripts, table rows).
+  Never infer presence, absence, importance or scientific relevance from
+  the mention count — read the underlying resource.
+- Map identifiers are bare (`current`, `lib`, ...), the same
+  representation as the `map` column of `cortex_list`.
+
 ## Caching note
 
 Like every Scout task, results are cached per input combination. If the
