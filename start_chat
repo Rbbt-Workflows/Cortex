@@ -84,3 +84,7 @@ Mechanics to respect during upkeep:
   with `cortex_list` or `cortex_read` before citing, promoting, or removing.
 - In a scientific setting some cortical elements may refer to others as
   evidence, find a way to respect or restore these relationships.
+- Your ComputerUse tooling is intended for Upkeep tasks only
+
+introduce: ComputerUse
+tool: ComputerUse
