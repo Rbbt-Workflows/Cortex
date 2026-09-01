@@ -44,7 +44,7 @@ module Cortex
   # Canonical conversation/brief tools (+ legacy aliases at the bottom)
   # ------------------------------------------------------------------
 
-  input :conversation, :string, 'Conversation name in the Cortex conversations namespace', nil, required: true
+  input :conversation, :string, 'Conversation name in the Cortex conversations namespace', nil, required: true, nofile: true
   input :prompt, :text, 'Prompt to continue the conversation', nil, required: true
   dep :continue, chat: :placeholder do |jobname,options|
     conversation, prompt = options.values_at :conversation, :prompt
@@ -58,7 +58,7 @@ module Cortex
     {agent_meta: [{role: :meta, content: Chat.serialize_meta({job: continue.short_path})}], content: res.answer}
   end
 
-  input :conversation, :string, 'Brief name in the Cortex briefs namespace; it does not need to contain the agent name', nil, required: true
+  input :conversation, :string, 'Brief name in the Cortex briefs namespace; it does not need to contain the agent name', nil, required: true, nofile: true
   input :prompt, :text, 'Prompt for the agent that will produce the brief', nil, required: true
   input :agent, :string, 'Agent the brief is for (e.g. Worker); recorded in the briefs .meta sidecar and used to produce the brief', nil, required: true
   dep :continue, chat: :placeholder do |jobname,options|

@@ -37,7 +37,7 @@ module Cortex
     end
   end
 
-  input :name, :string, 'Name of the conversation, brief, artifact, or entity list (artifacts and lists may include subdirs, e.g. claims/C42.md or TF/C01)', nil, required: true
+  input :name, :string, 'Name of the conversation, brief, artifact, or entity list (artifacts and lists may include subdirs, e.g. claims/C42.md or TF/C01)', nil, required: true, nofile: true
   input :type, :select, "Namespace of the item to read", nil, {select_options: %w(conversations briefs artifacts lists properties), required: true, jobname: true}
   input :last, :integer, 'Trailing N messages of a conversation/brief (full content)', nil
   input :range, :string, 'Inclusive message index range "a-b" (e.g. "0-3") of a conversation/brief', nil
