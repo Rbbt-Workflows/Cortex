@@ -167,6 +167,37 @@ name in `briefs/` (it does not need to contain the agent name), and is
 referenced as `Agent/brief` — e.g. `Worker/bash-math` means agent
 `Worker` prepared by brief `bash-math`.
 
+Briefs define their own tooling: `cortex_brief` accepts a `tools` array of
+spec strings that are expanded into `tool:` / `introduce:` chat messages
+persisted at the top of the brief body, so an agent invoked as
+`Agent/<brief>` through `cortex_continue` receives exactly the provisioned
+tools (plus the framework's own mandatory `tool: Cortex` entry). Each spec
+follows `"Workflow [task [input|name=value ...]]"`; `tools:
+["ScoutCoder help_workflow", "Boolean trap_spaces network cft=default",
+"Baking"]` persists, in array order:
+
+```
+tool: ScoutCoder help_workflow
+tool: Boolean trap_spaces network cft=default
+introduce: Baking
+tool: Baking
+```
+
+A whole-workflow spec (`Baking`) is persisted as BOTH an `introduce: Baking`
+message (the workflow documentation) AND a `tool: Baking` message (every
+task of the workflow as a tool, full inputs). A task-level spec persists
+one `tool:` line with the spec pasted verbatim: `Workflow task` accepts all
+task inputs, appending bare input names (`Workflow task net`) restricts the
+accepted inputs to those names, `name=value` tokens
+(`Workflow task net=lab`) pre-fill the input at call time and hide it from
+the model, and `noinputs` (or `none`) as the sole input token exposes the
+task with no inputs. Specs are validated for syntax only and resolved when
+the brief is used. Giving `tools` replaces the brief's entire tool block
+(`tools: []` strips all tooling); omitting `tools` leaves the existing
+tooling untouched. The full behavior is documented with the
+`cortex_brief` parameters in
+[doc/user/WorkspaceTools.md](doc/user/WorkspaceTools.md).
+
 ## Entities and evidence
 
 Cortex deliberately ships no scientific semantics of its own, but it does
@@ -223,6 +254,15 @@ scout workflow task Cortex cortex_brief --conversation bash-math \
     --prompt "You are a math worker; always compute sums with bash arithmetic."
 ```
 
+Provision the brief's tooling so the agent receives exactly these tools:
+
+```bash
+scout workflow task Cortex cortex_brief --conversation bash-math \
+    --agent Worker \
+    --tools '["ScoutCoder help_workflow", "Baking"]' \
+    --prompt "You are a math worker; always compute sums with bash arithmetic."
+```
+
 Continue a conversation with the briefed agent:
 
 ```bash
@@ -262,6 +302,28 @@ Recall everything known about one entity before investigating it:
 scout workflow task Cortex cortex_activity --entity_type TF --entity TP53
 ```
 
+### Cortex etiquette
+
+Whenever you need to establish that something works, **open an investigation**
+and leave the results for those who come after you. An investigation should
+conclude when the issue is clear and understood. At that point, consider what
+should be done with the information: consolidate it, turn it into
+documentation, update an existing artifact, or otherwise clean it up so that
+future work becomes simpler.
+
+Maintain **named Cortex conversations** for different areas of work, and
+recruit the appropriate agents for each. When a new line of work branches
+off an established conversation, start a new named conversation and carry
+over only the conclusions that matter (preferably as artifacts the new
+conversation can cite).
+
+For tasks that require substantial preparation—such as writing workflow tasks,
+debugging complex errors, or developing tests—consider **briefing a specialist
+agent first**. Give it additional instructions about what it needs to
+investigate, and, when appropriate, have it perform a simple task first. This
+can verify that the agent has acquired the necessary context and understanding
+before it is trusted with a sequence of more complicated tasks.
+
 # Tasks
 
 ## continue
@@ -290,12 +352,27 @@ does not exist produces an actionable error listing available briefs.
 ## cortex_brief
 Create or update a reusable agent brief
 
-Grows `briefs/<name>` with the prompt (a fresh brief starts prompt-only)
-and saves it with a `.meta` sidecar recording the target agent, the
-producing job, and a timestamp. The brief name does not need to contain
-the agent name. Use this before `cortex_continue` whenever an agent needs
-consistent preparation, then reference the agent as `Agent/brief`. Same
-receipt contract as `cortex_continue`.
+Grows `briefs/<name>` with the prompt (a fresh brief starts prompt-only
+when no `tools` are given) and saves it with a `.meta` sidecar recording
+the target agent, the producing job, and a timestamp. The brief name does
+not need to contain the agent name. Use this before `cortex_continue`
+whenever an agent needs consistent preparation, then reference the agent
+as `Agent/brief`. Same receipt contract as `cortex_continue`.
+
+The `tools` input (a JSON array of spec strings, never comma-split)
+provisions the brief's tooling: specs follow `"Workflow [task
+[input|name=value ...]]"` and are persisted as `tool:`/`introduce:` chat
+messages at the top of the brief body, so the briefed agent receives
+exactly those tools. A whole-workflow spec persists BOTH an
+`introduce: Workflow` message (documentation) AND a `tool: Workflow`
+message (every task, full inputs); a task-level spec persists one verbatim
+`tool:` line where bare input names restrict the accepted inputs,
+`name=value` pre-fills and hides an input, and `noinputs`/`none` as the
+sole input token exposes the task with no inputs. Validation is syntax
+only; workflows and tasks are resolved when the brief is used. Giving
+`tools` replaces the whole existing tool block, `tools: []` strips all
+tooling, and omitting `tools` keeps the existing tooling. See
+doc/user/WorkspaceTools.md for the full grammar and examples.
 
 ## cortex_list
 List workspace namespaces with metadata only

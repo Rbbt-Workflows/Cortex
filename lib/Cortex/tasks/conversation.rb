@@ -1,8 +1,9 @@
 require_relative '../conversations'
+require 'json'
 require_relative '../briefs'
 
 # ==========================================================================
-# Cortex conversation/brief tasks (+ legacy aliases at the bottom)
+# Cortex conversation/brief tasks
 # ==========================================================================
 #
 # The dep-chat builder reads through the unified resolution mechanism
@@ -33,18 +34,16 @@ module Cortex
   end
 
   input :agent, :string, 'Agent name; optionally Agent/brief_name to load a brief stored in the Cortex briefs namespace (e.g. Worker/math loads brief math for agent Worker)', nil
+
   chat_task :continue do
-    agent_conversation = inputs[:agent]
-    agent = load_agent_conversation agent_conversation
-    agent.follow chat
-    agent
+    load_agent_conversation inputs[:agent], chat
   end
 
   # ------------------------------------------------------------------
-  # Canonical conversation/brief tools (+ legacy aliases at the bottom)
+  # Canonical conversation/brief tools
   # ------------------------------------------------------------------
 
-  input :conversation, :string, 'Conversation name in the Cortex conversations namespace', nil, required: true, nofile: true
+  input :conversation, :string, 'Conversation name in the Cortex conversations namespace', nil, required: true, nofile: true, jobname: true
   input :prompt, :text, 'Prompt to continue the conversation', nil, required: true
   dep :continue, chat: :placeholder do |jobname,options|
     conversation, prompt = options.values_at :conversation, :prompt
@@ -58,23 +57,24 @@ module Cortex
     {agent_meta: [{role: :meta, content: Chat.serialize_meta({job: continue.short_path})}], content: res.answer}
   end
 
-  input :conversation, :string, 'Brief name in the Cortex briefs namespace; it does not need to contain the agent name', nil, required: true, nofile: true
+  input :conversation, :string, 'Brief name in the Cortex briefs namespace; it does not need to contain the agent name', nil, required: true, nofile: true, jobname: true
   input :prompt, :text, 'Prompt for the agent that will produce the brief', nil, required: true
   input :agent, :string, 'Agent the brief is for (e.g. Worker); recorded in the briefs .meta sidecar and used to produce the brief', nil, required: true
+  input :tools, :array, 'Tool specs persisted in the brief body as tool:/introduce: chat messages; a briefed agent (cortex_continue --agent Agent/<brief>) receives exactly these tools. Grammar "Workflow [task [input|name=value ...]]": whole workflow "Baking" adds introduce: Baking plus tool: Baking (one tool per task, full inputs); "Workflow task [inputs...]" adds one tool: line, verbatim. name=value pre-fills the input and hides it from the model; bare names restrict the accepted inputs; noinputs/none as the sole input token exposes the task with no inputs. Specs are validated for syntax only and resolved at continue time (a workflow may be absent now and installed later). Give tools to REPLACE the brief tooling (tools: [] strips it all); omit tools to KEEP the existing tooling. JSON array of strings, never comma-split', nil
   dep :continue, chat: :placeholder do |jobname,options|
-    conversation, prompt = options.values_at :conversation, :prompt
-    {chat: Cortex.conversation_prompt_chat(conversation, prompt, namespace: :briefs)}
+    conversation, prompt, tools = options.values_at :conversation, :prompt, :tools
+    tools = JSON.parse(tools) if String === tools
+    {chat: Cortex.brief_prompt_chat(conversation, prompt, tools)}
   end
-  task :cortex_brief => :json do |conversation,prompt,agent|
+  task :cortex_brief => :json do |conversation,prompt,agent,tools|
     continue = step(:continue)
     res = continue.load
     res = Chat.setup(res)
-    save_brief conversation, prompt, res, agent: agent.to_s, job: continue.short_path
+    # :array inputs arrive as a JSON string through some surfaces; accept
+    # both, exactly like entity tasks treat their :text arguments input.
+    tools = JSON.parse(tools) if String === tools
+    save_brief conversation, prompt, res, agent: agent.to_s, job: continue.short_path, tools: tools
     {agent_meta: [{role: :meta, content: Chat.serialize_meta({job: continue.short_path})}], content: res.answer}
   end
 
-  # ------------------------------------------------------------------
-  # Compatibility aliases: continue_chat -> cortex_continue,
-  # brief_agent -> cortex_brief. Same inputs, same receipts.
-  # ------------------------------------------------------------------
 end

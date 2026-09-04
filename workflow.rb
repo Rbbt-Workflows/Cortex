@@ -67,18 +67,22 @@ module Cortex
   helper :write_list do |entity_type,list,entities,**kw| Cortex.write_list(entity_type, list, entities, **kw) end
   helper :read_list do |entity_type,list| Cortex.read_list(entity_type, list) end
 
-  helper :load_agent_conversation do |agent_conversation=nil|
+  # Load the agent named by `agent_conversation` (an optional `Agent/brief`
+  # pair: the brief is resolved from the briefs namespace and followed into
+  # start_chat), attach the mandatory Cortex toolset, then follow the dep
+  # chat as the per-turn tail.
+  helper :load_agent_conversation do |agent_conversation=nil, chat=nil|
     agent = if agent_conversation.nil?
               self.agent nil
             else
               name, _sep, conversation = agent_conversation.partition('/')
               brief = resolve_brief name, conversation if conversation && !conversation.empty?
-              chat = self.chat
-              agent = self.agent name, chat: nil
+              agent = self.agent name
               agent.start_chat.follow brief if brief
               agent
             end
     agent.start_chat.tool 'Cortex'
+    agent.follow chat if chat && !chat.empty?
     agent
   end
 

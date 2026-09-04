@@ -65,10 +65,10 @@ Canonical + compatibility (old names = `task_alias` shims, see below):
 ### Renames/aliases
 
 `cortex_continue`/`cortex_brief` are the real tasks. `continue_chat` and
-`brief_agent` are `task_alias` shims (`task_alias :continue_chat, Cortex,
-:cortex_continue`), so they keep identical inputs, output type, receipts.
-Verified in `reference-scout-paths.md` §4. Export list gains the canonical
-names; aliases stay exported (agents in old conversations keep working).
+`brief_agent` were initially `task_alias` shims, but the aliases were later
+removed entirely: only the `cortex_*` names (plus the internal `continue`
+chat task) exist and are exported today. Historical notes may still show the
+shim-era wording; the current task list is authoritative.
 
 ## 3. Semantics per operation
 

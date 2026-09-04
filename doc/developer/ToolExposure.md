@@ -84,6 +84,53 @@ Tool calls run as real jobs (`LLM.call_workflow`), so every `cortex_*` call
 has a `var/jobs/Cortex/<task>/...` job with its own provenance  -  the
 `job:` recorded in artifact meta refers to that job.
 
+## Briefs provision their own tooling
+
+`cortex_brief` accepts a `tools` input: an array of spec strings in
+`Workflow [task [input|name=value ...]]` form. The engine
+(`lib/Cortex/briefs.rb`: `TOOL_SPEC_GRAMMAR`, `validate_tool_spec`,
+`whole_workflow_spec?`, `tool_messages`) expands the specs, in array order,
+into a block of `tool:` / `introduce:` chat messages and `save_brief`
+prepends that block to the top of the brief body:
+
+- a whole-workflow spec (`Baking`) emits BOTH `introduce: Baking` (the
+  workflow documentation) and `tool: Baking` (every task of the workflow
+  as a tool, full inputs)  -  the same shape `load_agent_conversation`
+  uses for the Cortex toolset itself;
+- a task-level spec emits a single `tool:` line with the spec pasted
+  verbatim (whitespace tokens rejoined by single spaces).
+
+Because the specs become ordinary chat messages, the upstream scout-ai
+`tool:`/`introduce:` semantics govern them at continue time: bare input
+names restrict the accepted inputs, `name=value` pre-fills the input and
+hides it from the model, and `noinputs`/`none` as the sole input token
+exposes the task with no inputs. The grammar table and examples live in
+[../user/WorkspaceTools.md](../user/WorkspaceTools.md); the canonical
+behavior statement is the `tools` input description on `cortex_brief`.
+
+Validation is syntax only (`validate_tool_spec`): workflow/task names must
+be identifier-like, input tokens must be bare identifiers or `name=value`,
+and `noinputs`/`none` may only appear as the sole input token. A malformed
+spec raises an actionable `ScoutException` naming the spec and the grammar.
+Existence is deliberately not checked: a workflow absent at brief time may
+be installed by continue time, and an unknown workflow makes scout-ai
+attempt an install then. `save_brief(..., tools:)` implements the update
+semantics  -  `tools` given replaces the whole existing tool block
+(`strip_brief_tooling` removes every `tool:`/`introduce:`/`kb:`/`mcp:`
+message, then the new block is prepended), `tools: []` strips all tooling,
+and omitting `tools` leaves the tooling untouched.
+
+Delivery happens only through `Agent/brief` in `cortex_continue`:
+`resolve_brief` loads the brief, `load_agent_conversation` follows it into
+`start_chat`, and the agent's chat then carries exactly the provisioned
+tooling plus the framework's own mandatory `tool: Cortex` entry (verified
+end to end by `test/Cortex/test_brief_tools.rb`:
+`test_continue_through_brief_carries_provisioned_tools`). Provisioning is
+deliberately part of the brief itself: a brief defines its own tooling, so
+the prefix an agent sees is stable and reproducible from the brief file
+alone. Distinct `tools` arrays produce distinct `cortex_brief` jobs, so
+provisioning is part of the job identity.
+
 ## Why the toolset must stay stable
 
 The agent prefix (instructions + tooling) is built before the conversation

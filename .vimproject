@@ -3,21 +3,8 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
  start_chat
  workflow.rb
  chats=chats filter="*"{
-  EvolveCortex.md
-  continue
-  develop
-  entities
-  fit_agent
-  lib_path_map
-  lib_path_map.analysis
-  test
-  test.analysis
-
-  path_map
-
-  entities
-
-  history
+  inheritance
+  inheritance_test
  }
  lib=lib {
   Cortex=Cortex{

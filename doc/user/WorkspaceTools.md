@@ -58,9 +58,7 @@ Rules of thumb:
 
 ## `cortex_continue`  -  contribute to a conversation
 
-Continues a named research conversation. This is the canonical name of the
-task previously called `cortex_continue` (kept as an alias with identical
-behavior and receipts).
+Continues a named research conversation.
 
 ```
 cortex_continue(conversation:, prompt:, agent:)
@@ -70,7 +68,6 @@ cortex_continue(conversation:, prompt:, agent:)
 - `prompt`: what the contributing agent should do now.
 - `agent`: agent name, optionally `Agent/brief` to load a brief from the
   `briefs` namespace (e.g. `Worker/bash-math`).
-
 Returns `{agent_meta: [{role: :meta, content: "job=Cortex/continue/..."}],
 content: <answer>}`; the `job=` receipt is the provenance edge into the
 child execution.
@@ -78,12 +75,71 @@ child execution.
 ## `cortex_brief`  -  create/update an agent brief
 
 ```
-cortex_brief(conversation:, prompt:, agent:)
+cortex_brief(conversation:, prompt:, agent:, tools: [])
 ```
 
-`conversation` is the brief name (stored in `briefs/`, never mixed with
-regular conversations). Same receipt contract as `cortex_continue`.
-Previous canonical name: `cortex_brief`.
+- `conversation`: the brief name (stored in `briefs/`, never mixed with
+  regular conversations).
+- `prompt`: prompt for the agent producing the brief.
+- `agent`: agent the brief is for; recorded in the `briefs/.meta` sidecar
+  and used to produce the brief.
+- `tools`: JSON array of tool-spec strings, never comma-split. Each spec
+  follows `"Workflow [task [input|name=value ...]]"` and is expanded into
+  `tool:` / `introduce:` chat messages persisted at the top of the brief
+  body, so an agent invoked as `Agent/<brief>` through `cortex_continue`
+  receives exactly the provisioned tools (plus the framework's own
+  mandatory `tool: Cortex` entry).
+
+Same receipt contract as `cortex_continue`.
+
+### Tool specs
+
+| Spec | Persisted messages | Effect on the accepted inputs |
+|------|--------------------|-------------------------------|
+| `Baking` | `introduce: Baking` + `tool: Baking` | every task of the workflow becomes a tool, with all its inputs |
+| `Baking bake_muffin_tray` | `tool: Baking bake_muffin_tray` | one task, all its inputs accepted |
+| `Baking bake_muffin_tray blueberries` | `tool: Baking bake_muffin_tray blueberries` | one task; accepted inputs restricted to `blueberries` (plus the automatic `return_path`) |
+| `Baking bake_muffin_tray noinputs` | `tool: Baking bake_muffin_tray noinputs` | one task; no task inputs accepted (`none` is an equivalent alias) |
+| `Baking bake_muffin_tray blueberries=false` | `tool: Baking bake_muffin_tray blueberries=false` | one task; `blueberries` pre-filled with default `false` at call time and not part of the accepted input set (upstream `name=value` semantics: defaults are hidden from the model) |
+| `Baking bake_muffin_tray blueberries=false wheat_type` | `tool: Baking bake_muffin_tray blueberries=false wheat_type` | one task; `blueberries` defaulted, accepted inputs restricted to `wheat_type` |
+
+Worked example — `tools: ["ScoutCoder help_workflow", "Boolean
+trap_spaces network cft=default", "Baking"]` persists exactly these
+messages at the top of the brief, in array order:
+
+```
+tool: ScoutCoder help_workflow
+tool: Boolean trap_spaces network cft=default
+introduce: Baking
+tool: Baking
+```
+
+Behavioral notes:
+
+- Spec strings are pasted **verbatim** into the tool messages (whitespace
+  tokens rejoined by single spaces); there is no semantic rewriting, and
+  the upstream scout-ai `tool:` message semantics govern what the tokens
+  mean at continue time.
+- Validation is syntax only (workflow/task names identifier-like; tokens
+  are bare identifiers or `name=value`; `noinputs`/`none` only as the sole
+  input token). A malformed spec raises an actionable `ScoutException`
+  naming the spec and the grammar. Workflow/task existence is **not**
+  checked at brief time — specs are resolved when the brief is used, and
+  an unknown workflow may trigger an upstream install attempt then.
+- Update semantics: a brief update **with** `tools` replaces the entire
+  existing tool block (all `tool:`/`introduce:`/`kb:`/`mcp:` messages
+  stripped, new block prepended); an update **without** `tools` leaves the
+  tooling untouched; `tools: []` strips all tooling.
+- Input encoding: the `tools` input is a JSON array of strings (never
+  comma-split).
+- Delivery path: provisioning takes effect only via `Agent/brief` in
+  `cortex_continue`; the spawned agent's chat carries exactly the
+  provisioned tooling plus the framework's own mandatory `tool: Cortex`
+  entry.
+- Briefs define their own tooling deliberately (see
+  [../developer/ToolExposure.md](../developer/ToolExposure.md)).
+- Schema changes to briefs/tool exposure can invalidate provider
+  prompt-cache prefixes for cached conversations one time.
 
 ## `cortex_list`  -  compact inventory
 

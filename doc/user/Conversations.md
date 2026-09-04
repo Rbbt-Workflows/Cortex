@@ -8,9 +8,9 @@ Cortex.
 
 
 
-> **Aliases:** `cortex_continue`/`cortex_brief` were previously called
-> `continue_chat`/`brief_agent`. The old names still work with identical
-> inputs and receipts.
+> **Naming:** `cortex_continue`/`cortex_brief` were originally called
+> `continue_chat`/`brief_agent` during development; the current names are
+> the only ones ever exported.
 ---
 
 ## Briefing an agent
@@ -30,6 +30,18 @@ cortex_brief(
   name  -  store it under whatever name you will remember.
 - `agent` is the agent that will hold the brief and that the brief is
   recorded for in `briefs/.meta/<name>.json`.
+- `tools` (optional) provisions the brief's tooling: a JSON array of spec
+  strings in `"Workflow [task [input|name=value ...]]"` form, e.g.
+  `["ScoutCoder help_workflow", "Baking"]`. The specs are expanded into
+  `tool:` / `introduce:` chat messages persisted at the top of the brief
+  body, so the agent later invoked as `Agent/<brief>` through
+  `cortex_continue` receives exactly the provisioned tools (plus the
+  framework's own mandatory `tool: Cortex` entry). Giving `tools` replaces
+  the brief's entire tool block; `tools: []` strips all tooling; omitting
+  `tools` leaves the existing tooling untouched. The full grammar (whole
+  workflow, one task, input restriction, `name=value` defaults,
+  `noinputs`) is documented with the `cortex_brief` parameters in
+  [WorkspaceTools.md](WorkspaceTools.md).
 - The task returns `{agent_meta: [...job...], content: <answer>}`: a receipt
   pointing at the `Cortex/continue` job that produced the brief, plus the
   agent's acknowledgment.
@@ -61,7 +73,9 @@ The `agent` parameter accepts:
 
 - `"Worker"`  -  run agent `Worker` with no brief.
 - `"Worker/bash-math"`  -  run agent `Worker` with the brief named
-  `bash-math` from `briefs/`.
+  `bash-math` from `briefs/`; the brief's provisioned tooling (if any)
+  travels with it, so the agent carries exactly those tools plus the
+  framework's own mandatory `tool: Cortex` entry.
 
 If the brief does not exist, the call fails with `No brief 'bash-math'`
 (plus the list of existing briefs) rather than silently running an unbriefed

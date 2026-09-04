@@ -57,7 +57,7 @@ Constants: `CORTEX` (= `Scout.var.cortex`), `VALID_TYPES`,
 |------|------|---------|
 | `continue` | `chat_task :continue` (`:chat`) | The only place an agent is built and run; brief resolution happens here |
 | `cortex_continue` | `:json` | Conversation turn: dep on `continue`, persist to `conversations/`, return receipt |
-| `cortex_brief` | `:json` | Brief creation: dep on `continue`, persist to `briefs/` + `.meta` sidecar, return receipt |
+| `cortex_brief` | `:json` | Brief creation: dep on `continue`, persist to `briefs/` + `.meta` sidecar, return receipt; optional `tools` input provisions the brief's tooling (`lib/Cortex/briefs.rb`) |
 | `cortex_list` | `:text` | Compact namespace inventory |
 | `cortex_search` | `:text` | Lexical content search with snippets |
 | `cortex_read` | `:text` | Bounded reads (index / last / range / artifact) |
@@ -69,18 +69,19 @@ tools (see [ToolExposure.md](ToolExposure.md)).
 ## Anatomy of one `cortex_continue` turn
 
 1. The caller (an agent using the Cortex tool, or a Ruby driver) invokes the
-   task with `conversation`, `prompt`, `agent`.
+   task with `conversation`, `prompt`, and `agent`.
 2. The `dep :continue, chat: :placeholder` block builds the input chat:
    `Cortex.conversation_prompt_chat(conversation, prompt,
    namespace: :conversations)`  -  loads `conversations/<name>` if present,
    appends the prompt as a user turn. This is a *separate* chat from the
    workspace file until saving.
 3. `continue` (a `chat_task`) builds the agent:
-   `load_agent_conversation(agent)` parses `Agent[/brief]`, resolves the
-   brief **only** from `briefs/`, calls `AgentWorkflow#agent` (tooling,
-   system context), follows the brief into `start_chat`, then
-   `agent.start_chat.tool 'Cortex'` attaches the toolset, and the task body
-   does `agent.follow chat`.
+   `load_agent_conversation(agent, chat)` parses `Agent[/brief]`, resolves
+   the brief **only** from `briefs/`, `AgentWorkflow#agent` builds the
+   agent, the brief is followed into `start_chat`,
+   `agent.start_chat.tool 'Cortex'` attaches the toolset, and the task
+   body does `agent.follow chat` (the full dep chat is the per-turn tail,
+   tooling included).
 4. `chat_task` runs the agent (LLM + nested tools), calls `log_agent`
    (writes `log/agent.chat` under the job), and projects the result with
    `Chat.project`.
@@ -89,7 +90,21 @@ tools (see [ToolExposure.md](ToolExposure.md)).
    `{agent_meta: [...job...], content: answer}`.
 
 `cortex_brief` is the same flow with `namespace: :briefs`, `save_brief`, and a
-required `agent` input recorded in the brief sidecar.
+required `agent` input recorded in the brief sidecar. Its optional `tools`
+input (engine in `lib/Cortex/briefs.rb`) is expanded by `tool_messages` into
+a `tool:`/`introduce:` message block that `save_brief` prepends to the top
+of the brief body after `strip_brief_tooling` has removed any previous
+tooling  -  replace semantics: `tools` given replaces the block, `tools: []`
+strips all tooling, `tools` omitted keeps it. The dep chat receives the
+same specs: `brief_prompt_chat` pastes each string verbatim as a `tool:`
+message (whole-workflow specs also emit `introduce:`) before the user
+prompt, so the brief-producing agent sees the provisioned tools while
+drafting. Provisioning reaches a consuming agent when the brief is loaded
+through `Agent/brief` in `cortex_continue`, where the followed brief
+contributes exactly the provisioned tools plus the mandatory
+`tool: Cortex`. The spec grammar, validation, and examples are
+documented in [ToolExposure.md](ToolExposure.md) and
+[../user/WorkspaceTools.md](../user/WorkspaceTools.md).
 
 ## Error philosophy
 

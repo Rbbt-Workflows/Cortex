@@ -1,5 +1,10 @@
 # Cortex design decisions (workspace milestone)
 
+> Historical note: early records in this file use the original task names
+> `continue_chat`/`brief_agent`; those were renamed to `cortex_continue`/
+> `cortex_brief` and the old names no longer exist. Read them as the
+> canonical names.
+
 This note records the design decisions taken for the Cortex workspace
 milestone. It is a research note, not maintained documentation; user and
 developer docs come later in their own work items.

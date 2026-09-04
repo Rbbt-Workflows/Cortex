@@ -9,9 +9,9 @@ Cortex conversations.
 
 
 
-> **Aliases:** `cortex_continue`/`cortex_brief` were previously called
-> `continue_chat`/`brief_agent`. The old names still work with identical
-> inputs and receipts.
+> **Naming:** `cortex_continue`/`cortex_brief` were originally called
+> `continue_chat`/`brief_agent` during development; the current names are
+> the only ones ever exported.
 ---
 
 ## The receipt contract

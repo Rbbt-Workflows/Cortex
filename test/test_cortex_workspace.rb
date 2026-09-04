@@ -40,7 +40,9 @@ ART   = 'probe/test/a.md'
 ART2  = 'probe/test/b.md'
 CONV  = 'probe/test/conv'
 BRIEF = 'probe/test/brf'
-ALL   = [ART, ART2, CONV, BRIEF].freeze
+PG1   = 'probe/test/pg1.md'
+PG2   = 'probe/test/pg2.md'
+ALL   = [ART, ART2, CONV, BRIEF, PG1, PG2].freeze
 
 def purge
   NAMESPACES.each do |ns|
@@ -51,14 +53,13 @@ def purge
       end
     end
   end
-  # drop empty sandbox parents (artifacts and conversations alike)
+  # drop empty sandbox parents (artifacts, conversations and briefs alike)
   Cortex.read_maps.each do |m|
-    a = Cortex.namespace_dir(:artifacts, m) + '/probe'
-    Dir.rmdir(a + '/test') rescue nil
-    Dir.rmdir(a) rescue nil
-    c = Cortex.namespace_dir(:conversations, m) + '/probe'
-    Dir.rmdir(c + '/test') rescue nil
-    Dir.rmdir(c) rescue nil
+    [:artifacts, :conversations, :briefs].each do |ns|
+      d = Cortex.namespace_dir(ns, m).to_s + '/probe'
+      Dir.rmdir(d + '/test') rescue nil
+      Dir.rmdir(d) rescue nil
+    end
   end
 end
 
@@ -292,8 +293,8 @@ end
 # pagination
 # ---------------------------------------------------------------------
 check('listing pagination: offset/limit + next info') do
-  Cortex.write_artifact('probe/test/pg1.md', 'p1', :replace, job: 'test', agent: 'tester')
-  Cortex.write_artifact('probe/test/pg2.md', 'p2', :replace, job: 'test', agent: 'tester')
+  Cortex.write_artifact(PG1, 'p1', :replace, job: 'test', agent: 'tester')
+  Cortex.write_artifact(PG2, 'p2', :replace, job: 'test', agent: 'tester')
   page = Cortex.listing_text('artifacts', 'probe/test/', 0, 1)
   raise "EXPECTED: one-entry page, got:\n#{page[0, 200]}" unless page =~ /1\/\d+ entries/
   page2 = Cortex.listing_text('artifacts', 'probe/test/', 1, 1)

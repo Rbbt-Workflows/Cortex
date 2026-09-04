@@ -4,7 +4,7 @@ Cortex is a persistent research workspace for Scout-AI agents. It keeps named
 conversations, agent briefs, durable artifacts, and executable entity
 properties under `var/cortex/` organized in namespaces
 (`conversations/`, `briefs/`, `artifacts/`, `entities/`, `lists/` with
-`.meta/` provenance and `.history/` versions), and exposes nineteen tools
+`.meta/` provenance and `.history/` versions), and exposes twenty-one tools
 (`cortex_continue`, `cortex_brief`, `cortex_list`, `cortex_search`,
 `cortex_read`, `cortex_write`, `cortex_edit`, `cortex_rename`,
 `cortex_remove`, `cortex_move`, plus the property tools

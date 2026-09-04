@@ -2,7 +2,9 @@
 
 Date: 2026-08-24
 Scope: `cortex_list`, `cortex_search`, `cortex_read`, `cortex_write` as
-model-visible exported tools; desc blocks for `continue_chat`/`brief_agent`;
+model-visible exported tools; desc blocks for the tasks now named
+`cortex_continue`/`cortex_brief` (called `continue_chat`/`brief_agent` at
+the time of writing; the old names no longer exist);
 export list update; wording fixes in the research notes.
 
 > NOTE (repair round 1): this file was accidentally overwritten during the
@@ -280,3 +282,50 @@ only `claims/hand.md` and `claims/probe.md`.
   message. Low priority (models do not produce such names in practice).
 - `briefs/math` is still the hand-written fixture; replace during the later
   validation step.
+
+## Addendum  -  `tools` input on `cortex_brief` (2026-09-04)
+
+Implementation note for the brief tool-provisioning feature (engine:
+`lib/Cortex/briefs.rb`; task declaration: `lib/Cortex/tasks/conversation.rb`).
+
+- `tools` is an `:array` input on `cortex_brief` (default `[]`), a JSON array
+  of spec strings (never comma-split; the task body re-parses a JSON string,
+  mirroring the entity tasks' handling of their `:text arguments` input).
+- Each spec follows `Workflow [task [input|name=value ...]]`
+  (`TOOL_SPEC_GRAMMAR`). `validate_tool_spec` splits with `Shellwords`,
+  requires identifier-like workflow and task tokens (`/\A[\w.:-]+\z/`),
+  accepts input tokens that are bare identifiers or `name=value` (value may
+  be empty and contain anything), and rejects `noinputs`/`none` unless they
+  are the sole input token. Errors are actionable `ScoutException`s naming
+  the offending spec (via `inspect`) and the grammar.
+- `tool_messages` expands the specs in array order with the Chat builder API
+  (no string surgery): a one-token spec (`whole_workflow_spec?`) emits
+  `introduce <workflow>` then `tool <workflow>`; any longer spec emits a
+  single `tool` message with the tokens rejoined by single spaces  -  the
+  spec is otherwise pasted verbatim, so upstream scout-ai `tool:` semantics
+  apply at continue time (bare names restrict accepted inputs, `name=value`
+  pre-fills and hides the input, `noinputs`/`none` exposes no inputs).
+- `save_brief(..., tools:)` implements replace semantics: with `tools` (even
+  `[]`) the existing chat is passed through `strip_brief_tooling` (removes
+  `tool`/`introduce`/`kb`/`mcp` roles on a copy) and the new block is
+  prepended unless empty; with `tools` omitted (`nil`) the existing tooling
+  is kept untouched.
+- Validation is syntax only by design: workflow/task existence is never
+  checked at brief time because a workflow may be installed later and
+  unknown workflows make scout-ai attempt an install at continue time.
+- The dep chat receives the same specs: `brief_prompt_chat` pastes each
+  string verbatim as a `tool:` message (whole-workflow specs also emit
+  `introduce:`) before the user prompt, so the brief-producing agent sees
+  the provisioned tools while drafting. Provisioning is still delivered to
+  a consuming agent through `Agent/brief` in `cortex_continue`, where the
+  followed brief contributes the provisioned tools plus the framework's
+  mandatory `tool: Cortex`.
+- Distinct `tools` arrays yield distinct `cortex_brief` job paths (the input
+  participates in job identity), and the task schema exposes `tools` on
+  `cortex_brief` only (`cortex_continue` and `continue` expose no tool
+  provisioning input of their own).
+- Behavior is pinned by `test/Cortex/test_brief_tools.rb` (grammar variants
+  and exact expected messages, verbatim pass-through, array order, the
+  worked example, replace/keep/strip persistence, schema assertions, and
+  the end-to-end mock-backend run proving the briefed agent carries exactly
+  the provisioned tooling).

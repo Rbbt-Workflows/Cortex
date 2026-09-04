@@ -80,12 +80,14 @@ it declares a `dep` on the original task and re-exposes its result
   block. If we want an alias that literally returns the dep's JSON output,
   `task_alias` is enough.
 
-Decision: implement `cortex_continue`/`cortex_brief` as real tasks (renamed
-bodies of `continue_chat`/`brief_agent`) and keep the old names as
-`task_alias` shims that depend on the new tasks. Since the old names must
-return byte-identical receipts, and the receipt is produced by the canonical
-task, `task_alias` forwarding satisfies the contract. (Verified:
-`task_alias` returns the dep's persisted result when not `:forget`.)
+Decision (original): implement `cortex_continue`/`cortex_brief` as real
+tasks (renamed bodies of the old names) and keep the old names as
+`task_alias` shims. (Verified: `task_alias` returns the dep's persisted
+result when not `:forget`.)
+
+Later outcome: the `task_alias` shims were removed altogether during the
+workspace-hygiene pass; only the canonical `cortex_*` names exist today.
+The mechanics above are kept as reference for future alias work.
 
 ## 5. `:lib` as default write map — reality check
 
