@@ -243,7 +243,11 @@ module Cortex
                                             property_type, result_type, arguments,
                                             dependencies, test_entity, test_arguments, agent|
 
-    arguments = JSON.parse(arguments) if String === arguments
+    arguments = begin
+                  JSON.parse(arguments) if String === arguments
+                rescue
+                  raise ParameterException, 'Could not parse json in arguments parameter: ' + Log.fingerprint(arguments)
+                end
     test_arguments = JSON.parse(test_arguments) if String === test_arguments
 
     res = Cortex.define_property(entity_type, property, body: body, description: description,

@@ -73,11 +73,11 @@ module Cortex
   # chat as the per-turn tail.
   helper :load_agent_conversation do |agent_conversation=nil, chat=nil|
     agent = if agent_conversation.nil?
-              self.agent nil
+              self.agent nil, job_path_message: false
             else
               name, _sep, conversation = agent_conversation.partition('/')
               brief = resolve_brief name, conversation if conversation && !conversation.empty?
-              agent = self.agent name
+              agent = self.agent name, job_path_message: false
               agent.start_chat.follow brief if brief
               agent
             end
