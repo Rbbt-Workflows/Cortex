@@ -83,6 +83,7 @@ module Cortex
             end
     agent.start_chat.tool 'Cortex'
     agent.follow chat if chat && !chat.empty?
+    agent.save_file = LLM::Agent.canonical_chat_file(files_dir, agent_conversation) if agent.save_file.nil?
     agent
   end
 
