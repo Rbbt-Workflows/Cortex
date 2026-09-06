@@ -194,7 +194,11 @@ the model, and `noinputs` (or `none`) as the sole input token exposes the
 task with no inputs. Specs are validated for syntax only and resolved when
 the brief is used. Giving `tools` replaces the brief's entire tool block
 (`tools: []` strips all tooling); omitting `tools` leaves the existing
-tooling untouched. The full behavior is documented with the
+tooling untouched. Briefing runs no inference pass by default: the prompt
+(and the tool block) is stored as-is and nothing executes, so a brief can
+be prepared without spending a model call; pass `reply: true` when the
+agent should instead draft the briefing text itself and its answer should
+be appended to the brief. The full behavior is documented with the
 `cortex_brief` parameters in
 [doc/user/WorkspaceTools.md](doc/user/WorkspaceTools.md).
 

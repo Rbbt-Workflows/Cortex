@@ -14,7 +14,7 @@ module Cortex
   input :description, :string, 'Optional description recorded in the .meta sidecar', nil
   input :entity_options, :text, 'Optional entity annotation options (JSON object, e.g. organism) recorded in the .meta sidecar and applied when the list is used as a property receiver', nil
   task :cortex_write_list => :text do |entity_type,list,entities,description,entity_options|
-    entity_options = JSON.parse(entity_options) if String === entity_options && !entity_options.to_s.empty?
+    entity_options = parse_json entity_options, :entity_options
     name, count, _path = Cortex.write_list(entity_type, list, entities,
                                            description: description,
                                            entity_options: entity_options,

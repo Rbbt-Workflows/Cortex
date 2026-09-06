@@ -144,8 +144,8 @@ module Cortex
     errors = []
     smoke  = nil
 
-    arguments = JSON.parse(arguments) if String === arguments
-    test_arguments = JSON.parse(test_arguments) if String === test_arguments
+    arguments = parse_json arguments, :arguments
+    test_arguments = parse_json test_arguments, :test_arguments
 
     active = begin
       Cortex.property_definition entity_type, property
@@ -243,12 +243,8 @@ module Cortex
                                             property_type, result_type, arguments,
                                             dependencies, test_entity, test_arguments, agent|
 
-    arguments = begin
-                  JSON.parse(arguments) if String === arguments
-                rescue
-                  raise ParameterException, 'Could not parse json in arguments parameter: ' + Log.fingerprint(arguments)
-                end
-    test_arguments = JSON.parse(test_arguments) if String === test_arguments
+    arguments = parse_json arguments, :arguments
+    test_arguments = parse_json test_arguments, :test_arguments
 
     res = Cortex.define_property(entity_type, property, body: body, description: description,
                                 property_type: property_type, result_type: result_type,
@@ -275,8 +271,9 @@ module Cortex
                                             arguments, dependencies, test_entity,
                                             test_arguments, agent|
 
-    arguments = JSON.parse(arguments) if String === arguments
-    test_arguments = JSON.parse(test_arguments) if String === test_arguments
+    arguments = parse_json arguments, :arguments
+
+    test_arguments = parse_json test_arguments, :test_arguments
 
     res = Cortex.update_property(entity_type, property, expected_version: expected_version,
                                  body: body, description: description,
@@ -320,15 +317,15 @@ module Cortex
     # keep everything else as a single identifier.
     if entity && !entity.to_s.strip.empty?
       begin
-        parsed = JSON.parse entity
+        parsed = parse_json entity, :entity
         entity = parsed if Array === parsed
       rescue JSON::ParserError
         # plain identifier
       end
     end
 
-    arguments = JSON.parse(arguments) if String === arguments
-    entity_options = JSON.parse(entity_options) if String === entity_options
+    arguments = parse_json arguments, :arguments
+    entity_options = parse_json entity_options, :entity_options
     entity_options = IndiferentHash.setup(entity_options) if Hash === entity_options
 
     # Resolve the named list BEFORE running: the receiver becomes the list

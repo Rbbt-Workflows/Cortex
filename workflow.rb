@@ -44,6 +44,21 @@ module Cortex
   # Workflow helpers: thin delegation to the lib modules
   # ------------------------------------------------------------------
 
+  helper :parse_json do |value, name= nil|
+    if String === value
+      begin
+        JSON.parse(value)
+      rescue
+        if name
+          raise ParameterException, "Could not parse json in #{name} parameter: " + Log.fingerprint(value)
+        else
+          raise ParameterException, 'Could not parse json: ' + Log.fingerprint(value)
+        end
+      end
+    else
+      value
+    end
+  end
   helper :conversation_path do |conversation| Cortex.conversation_path(conversation) end
   helper :brief_path do |brief| Cortex.brief_path(brief) end
   helper :artifact_path do |artifact| Cortex.artifact_path(artifact) end

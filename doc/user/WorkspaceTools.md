@@ -75,7 +75,7 @@ child execution.
 ## `cortex_brief`  -  create/update an agent brief
 
 ```
-cortex_brief(conversation:, prompt:, agent:, tools: [])
+cortex_brief(conversation:, prompt:, agent:, tools: [], reply: false)
 ```
 
 - `conversation`: the brief name (stored in `briefs/`, never mixed with
@@ -89,8 +89,14 @@ cortex_brief(conversation:, prompt:, agent:, tools: [])
   body, so an agent invoked as `Agent/<brief>` through `cortex_continue`
   receives exactly the provisioned tools (plus the framework's own
   mandatory `tool: Cortex` entry).
-
-Same receipt contract as `cortex_continue`.
+- `reply`: `false` (default) stores the prompt (and the tool block when
+  `tools` is given) with **no inference pass** — the brief grows by exactly
+  one `user` message and nothing runs, so no `job=` receipt is produced.
+  This is the intended mode when the briefing instructions you supply are
+  already the operational knowledge. `reply: true` additionally runs the
+  agent and appends its answer to the brief; the receipt contract is the
+  same as `cortex_continue` (`agent_meta` with the `job=` provenance edge
+  into the producing execution).
 
 ### Tool specs
 

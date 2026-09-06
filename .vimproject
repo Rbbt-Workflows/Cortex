@@ -3,8 +3,7 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
  start_chat
  workflow.rb
  chats=chats filter="*"{
-  inheritance
-  inheritance_test
+  briefs
  }
  lib=lib {
   Cortex=Cortex{

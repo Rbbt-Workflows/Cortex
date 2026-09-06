@@ -189,6 +189,7 @@ module Cortex
     meta['job'] = job.to_s
     meta['timestamp'] = Time.now.strftime('%Y-%m-%d %H:%M:%S')
     Open.write meta_path, JSON.pretty_generate(meta)
+    chat
   end
 
 end
