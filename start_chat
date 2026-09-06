@@ -30,6 +30,13 @@ or remove them only through the property tools, run them with
 Named entity lists (`cortex_write_list`, `cortex_read_list`) let properties
 run over entity sets by reference.
 
+Be mindful of how context is constructed in the cortex, don't reuse a
+conversation for unrelated work, use different conversations. If you consider
+that a conversation had valuable work figuring something out, use this
+knowledge to brief a specialist agent instead of reusing the conversation,
+perhaps even asking the ChatAnalyst to extract this knoweldge reflecting on the
+conversation itself.
+
 ## Upkeep
 
 The cortex is periodically revised through a process akin to sleep. Run it
