@@ -997,7 +997,7 @@ module Cortex
       job    = entity.send "#{property}_job", test_arguments
       job.run
       job.load
-    rescue StandardError => e
+    rescue Exception => e
       backtrace = ENV["CORTEX_VERBOSE_BACKTRACE"].to_s.downcase == "true" ?
                     "\n" + Array(e.backtrace).first(8).join("\n") : ""
       raise ScoutException,
