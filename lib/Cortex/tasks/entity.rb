@@ -319,8 +319,7 @@ module Cortex
       begin
         parsed = parse_json entity, :entity
         entity = parsed if Array === parsed
-      rescue JSON::ParserError
-        # plain identifier
+      rescue
       end
     end
 
@@ -362,6 +361,7 @@ module Cortex
                   rescue ScoutException
                     raise ScoutException
                   rescue Exception
+                    Log.exception $!
                     raise ParameterException, "Property execution raised: #{$!.message}"
                   end
 
