@@ -1,0 +1,50 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex brief -- Create or refresh a reusable agent brief (prompt plus optional tooling)
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Create or refresh a reusable agent brief (prompt plus optional tooling)
+
+  $ #{cmd} [<options>] <conversation> <prompt>
+
+  -h--help Print this help
+  -c--conversation* Brief name in the Cortex briefs namespace; it does not need to contain the agent name
+  -p--prompt* Prompt for the agent that will produce the brief
+  -a--agent* Agent the brief is for (e.g. Worker); recorded in the briefs .meta sidecar and used to produce the brief
+  -t--tools* Tool specs persisted in the brief body as tool:/introduce: chat messages; a briefed agent (cortex_continue --agent Agent/<brief>) receives exactly these tools. Grammar "Workflow [task [input|name=value ...]]": whole workflow "Baking" adds introduce: Baking plus tool: Baking (one tool per task, full inputs); "Workflow task [inputs...]" adds one tool: line, verbatim. name=value pre-fills the input and hides it from the model; bare names restrict the accepted inputs; noinputs/none as the sole input token exposes the task with no inputs. Specs are validated for syntax only and resolved at continue time (a workflow may be absent now and installed later). Give tools to REPLACE the brief tooling (tools: [] strips it all); omit tools to KEEP the existing tooling. JSON array of strings, never comma-split
+  -r--reply Have the agent reply to the prompt and include the answer in the brief; false (default) stores the prompt only, with no inference pass
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+conversation, prompt, agent = IndiferentHash.process_options options, :conversation, :prompt, :agent
+
+conversation = ARGV.shift if conversation.nil?
+prompt = ARGV.shift if prompt.nil?
+
+raise MissingParameterException, :conversation if conversation.nil?
+raise MissingParameterException, :prompt if prompt.nil?
+raise MissingParameterException, :agent if agent.nil?
+
+options[:conversation] = conversation
+options[:prompt] = prompt
+options[:agent] = agent
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_brief', options

@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex task <task> [...] -- Run any Cortex workflow task by name
+#
+# Generic passthrough mirroring `scout workflow task Cortex <task> --exec`:
+# the first argument is the Cortex task name, with or without the cortex_
+# prefix; everything after it is that task's own options and positionals.
+# Every documented task also has a dedicated subcommand, so `scout cortex
+# task search` and `scout cortex search` are equivalent — this exists for
+# the tasks that have no dedicated script (or when only the task name is
+# known).
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Run any Cortex workflow task by name
+
+  $ #{cmd} <task> [<options>] [<positional>...]
+
+-h--help Print this help
+EOF
+task_name = ARGV.shift
+
+# -h/--help alone: this command's help. -h/--help next to a task name
+# belongs to the task's dedicated subcommand instead.
+if task_name.nil? || task_name == '-h' || task_name == '--help' || options[:help] && task_name.nil?
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+if options[:help] || task_name == '--help' || task_name == '-h'
+  ARGV.unshift '--help'
+end
+
+Cortex::CLI.load_command(task_name, __FILE__)

@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex property_read -- Read a property definition body
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Read a property definition body
+
+  $ #{cmd} [<options>] <entity_type> <property>
+
+  -h--help Print this help
+  -et--entity_type* Entity type of the property (e.g. Gene)
+  -p--property* Property name
+  -s--start_line* First body line to return (1-based; 0 = interface only)
+  -l--lines* Max body lines to return per page (0 = all remaining)
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+entity_type, property = IndiferentHash.process_options options, :entity_type, :property
+
+entity_type = ARGV.shift if entity_type.nil?
+property = ARGV.shift if property.nil?
+
+raise MissingParameterException, :entity_type if entity_type.nil?
+raise MissingParameterException, :property if property.nil?
+
+options[:entity_type] = entity_type
+options[:property] = property
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_property_read', options

@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex write -- Write or append a durable artifact
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Write or append a durable artifact
+
+  $ #{cmd} [<options>] <path> <content>
+
+  -h--help Print this help
+  -p--path* Artifact path relative to var/cortex/artifacts (e.g. claims/C42.md); no absolute paths, no ..
+  -c--content* Full artifact content to write (mode replace) or append (mode append); never echoed back
+  -m--mode* replace overwrites (with history snapshot); append adds to the end, creating if absent
+  -a--agent* Optional agent name recorded in the .meta version entry
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+path, content = IndiferentHash.process_options options, :path, :content
+
+path = ARGV.shift if path.nil?
+content = ARGV.shift if content.nil?
+
+raise MissingParameterException, :path if path.nil?
+raise MissingParameterException, :content if content.nil?
+
+options[:path] = path
+options[:content] = content
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_write', options

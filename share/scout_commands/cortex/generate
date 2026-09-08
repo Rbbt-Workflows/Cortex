@@ -1,0 +1,92 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex generate -- Regenerate the `scout cortex` subcommand scripts
+#
+# Rebuilds every dedicated script in share/scout_commands/cortex/ from the
+# Cortex workflow task declarations, following the standard scout command
+# template (config/templates/scout_command):
+#
+#   $0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+#   cmd = $0
+#
+#   options = SOPT.setup <<~EOF
+#     <summary>
+#     $ #{cmd} [<options>]
+#     -h--help Print this help
+#     ...
+#     EOF
+#   if options[:help]
+#     if defined? scout_usage
+#       scout_usage
+#     else
+#       puts SOPT.doc
+#     end
+#     exit 0
+#   end
+#
+# Each generated script's SOPT.setup payload (summary, "$ cmd" synopsis, one
+# option line per input with its documentation) is produced from the task's
+# own input declarations: the task documentation IS the command
+# documentation, and the inputs are added programmatically at generation
+# time.
+#
+# Run from the repository root:
+#
+#   ruby share/scout_commands/cortex/generate
+#   scout cortex generate
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Regenerate the `scout cortex` subcommand scripts from the Cortex workflow task declarations
+
+  $ #{cmd} [<options>]
+
+  -h--help Print this help
+  -d--dry_run Regenerate in memory and print the diff instead of writing the scripts
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+dry_run = IndiferentHash.process_options options, :dry_run
+
+TARGET = File.expand_path('..', __FILE__)
+
+tasks = Cortex::CLI::POSITIONALS.keys.sort
+
+changed = []
+tasks.each do |task_name|
+  content = Cortex::CLI.generate_script(task_name)
+  script_name = task_name.to_s.sub('cortex_', '')
+  target = File.join(TARGET, script_name)
+  if dry_run
+    current = File.file?(target) ? File.read(target) : nil
+    status = current.nil? ? 'new' : (current == content ? 'unchanged' : 'CHANGED')
+    changed << status unless status == 'unchanged'
+    puts "#{status.ljust(10)} #{script_name}"
+  else
+    File.write(target, content)
+    puts "wrote #{script_name}"
+  end
+end
+
+if dry_run
+  summary = changed.empty? ? 'all generated scripts are up to date' :
+    "#{changed.length} script(s) would change; run without --dry_run to write them"
+  puts summary
+else
+  puts "generated #{tasks.length} subcommand scripts into #{TARGET}"
+end

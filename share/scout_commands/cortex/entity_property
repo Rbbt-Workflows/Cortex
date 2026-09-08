@@ -1,0 +1,55 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex entity_property -- Run a property for one entity or a named list, with a job receipt
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Run a property for one entity or a named list, with a job receipt
+
+  $ #{cmd} [<options>] <entity_type> <property> [<entity>] [<list>]
+
+  -h--help Print this help
+  -et--entity_type* Entity type (Ruby constant path, e.g. Gene)
+  -p--property* Property name
+  -l--list* Named entity list to run the property on, as <entity_type>/<list> (e.g. TF/C01); must already exist (create with cortex_write_list, discover with cortex_list type=lists). Preferred over entity for any multi-entity work
+  -e--entity* A single entity identifier (for multiple entities define a named list and use the list input instead)
+  -a--arguments* Property arguments (JSON object, never positional)
+  -en--entity_options* Entity annotation options (JSON object)
+  -u--update Clean the property job and recompute it
+  -t--timeout* Execution timeout in seconds for this run; omit to use the configured default (config key timeout, tokens entity_property/cortex; env CORTEX_ENTITY_PROPERTY_TIMEOUT; default 3600). Set 0, "false" or "none" to run unbounded
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+entity_type, property, entity, list = IndiferentHash.process_options options, :entity_type, :property, :entity, :list
+
+entity_type = ARGV.shift if entity_type.nil?
+property = ARGV.shift if property.nil?
+entity = ARGV.shift if entity.nil?
+list = ARGV.shift if list.nil?
+
+raise MissingParameterException, :entity_type if entity_type.nil?
+raise MissingParameterException, :property if property.nil?
+
+options[:entity_type] = entity_type
+options[:property] = property
+options[:entity] = entity
+options[:list] = list
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_entity_property', options

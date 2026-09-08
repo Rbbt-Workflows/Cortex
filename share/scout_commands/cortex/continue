@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex continue -- Append a turn to a named conversation, optionally through a briefed agent
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Append a turn to a named conversation, optionally through a briefed agent
+
+  $ #{cmd} [<options>] <conversation> <prompt>
+
+  -h--help Print this help
+  -c--conversation* Conversation name in the Cortex conversations namespace
+  -p--prompt* Prompt to continue the conversation
+  -a--agent* Agent name; optionally Agent/brief_name to load a brief stored in the Cortex briefs namespace (e.g. Worker/math loads brief math for agent Worker)
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+conversation, prompt = IndiferentHash.process_options options, :conversation, :prompt
+
+conversation = ARGV.shift if conversation.nil?
+prompt = ARGV.shift if prompt.nil?
+
+raise MissingParameterException, :conversation if conversation.nil?
+raise MissingParameterException, :prompt if prompt.nil?
+
+options[:conversation] = conversation
+options[:prompt] = prompt
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_continue', options

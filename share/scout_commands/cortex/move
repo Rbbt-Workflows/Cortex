@@ -1,0 +1,49 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex move -- Move a workspace resource between path maps
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Move a workspace resource between path maps
+
+  $ #{cmd} [<options>] <name> <to>
+
+  -h--help Print this help
+  -t--type* Namespace of the resource to move
+  -n--name* Logical name to move
+  -to--to* Target path map (configured map name, e.g. lib, chat, or a name from cortex_path_map.yaml)
+  -a--agent* Optional agent name recorded in the .meta version entry
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+name, to, type = IndiferentHash.process_options options, :name, :to, :type
+
+name = ARGV.shift if name.nil?
+to = ARGV.shift if to.nil?
+
+raise MissingParameterException, :type if type.nil?
+raise MissingParameterException, :name if name.nil?
+raise MissingParameterException, :to if to.nil?
+
+options[:name] = name
+options[:to] = to
+options[:type] = type
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_move', options

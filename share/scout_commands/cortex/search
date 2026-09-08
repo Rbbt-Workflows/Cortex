@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex search -- Lexically search conversation, brief, and artifact contents
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Lexically search conversation, brief, and artifact contents
+
+  $ #{cmd} [<options>] <query> [<type>]
+
+  -h--help Print this help
+  -q--query* Keyword(s) to search for; multiple terms are ANDed
+  -t--type* Restrict search: conversations, briefs, artifacts, lists, properties (executions), or all
+  -l--limit* Maximum number of matches to return
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+query, type = IndiferentHash.process_options options, :query, :type
+
+query = ARGV.shift if query.nil?
+type = ARGV.shift if type.nil?
+
+raise MissingParameterException, :query if query.nil?
+
+options[:query] = query
+options[:type] = type
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_search', options

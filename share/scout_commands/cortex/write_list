@@ -1,0 +1,51 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex write_list -- Write or replace a named entity list
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Write or replace a named entity list
+
+  $ #{cmd} [<options>] <entity_type> <list> <entities>
+
+  -h--help Print this help
+  -et--entity_type* Entity type of the list members (e.g. TF, Gene, Composite)
+  -l--list* List name (the file under var/cortex/lists/<entity_type>/; e.g. C01, cell-cycle)
+  -e--entities* Entities, one per line (newline separated)
+  -d--description* Optional description recorded in the .meta sidecar
+  -en--entity_options* Optional entity annotation options (JSON object, e.g. organism) recorded in the .meta sidecar and applied when the list is used as a property receiver
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+entity_type, list, entities = IndiferentHash.process_options options, :entity_type, :list, :entities
+
+entity_type = ARGV.shift if entity_type.nil?
+list = ARGV.shift if list.nil?
+entities = ARGV.shift if entities.nil?
+
+raise MissingParameterException, :entity_type if entity_type.nil?
+raise MissingParameterException, :list if list.nil?
+raise MissingParameterException, :entities if entities.nil?
+
+options[:entity_type] = entity_type
+options[:list] = list
+options[:entities] = entities
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_write_list', options

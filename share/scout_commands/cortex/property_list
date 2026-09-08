@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex property_list -- List entity property definitions
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  List entity property definitions
+
+  $ #{cmd} [<options>] [<entity_type>] [<prefix>]
+
+  -h--help Print this help
+  -et--entity_type* Filter by entity type (e.g. Gene); omit to list all types
+  -p--prefix* Only properties whose name starts with this prefix
+  -i--include_inactive Also list tombstoned/removed properties
+  -o--offset* Skip the first N entries
+  -l--limit* Return at most N entries per page
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+entity_type, prefix = IndiferentHash.process_options options, :entity_type, :prefix
+
+entity_type = ARGV.shift if entity_type.nil?
+prefix = ARGV.shift if prefix.nil?
+
+
+
+options[:entity_type] = entity_type
+options[:prefix] = prefix
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_property_list', options

@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex activity -- Report accumulated workspace activity around ONE entity
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Report accumulated workspace activity around ONE entity
+
+  $ #{cmd} [<options>] <entity_type> <entity>
+
+  -h--help Print this help
+  -et--entity_type* Entity type (Ruby constant path, e.g. Gene)
+  -e--entity* Entity identifier (e.g. FOXO1)
+  -l--limit* Max items per section
+  -f--facets* Comma-separated facet list; empty = all (properties, investigations, lists, mentions)
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+entity_type, entity = IndiferentHash.process_options options, :entity_type, :entity
+
+entity_type = ARGV.shift if entity_type.nil?
+entity = ARGV.shift if entity.nil?
+
+raise MissingParameterException, :entity_type if entity_type.nil?
+raise MissingParameterException, :entity if entity.nil?
+
+options[:entity_type] = entity_type
+options[:entity] = entity
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_activity', options

@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex remove -- Remove a workspace resource (irreversible)
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Remove a workspace resource (irreversible)
+
+  $ #{cmd} [<options>] <name> <type>
+
+  -h--help Print this help
+  -t--type* Namespace of the resource to remove
+  -n--name* Logical name to remove
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+name, type = IndiferentHash.process_options options, :name, :type
+
+name = ARGV.shift if name.nil?
+type = ARGV.shift if type.nil?
+
+raise MissingParameterException, :type if type.nil?
+raise MissingParameterException, :name if name.nil?
+
+options[:name] = name
+options[:type] = type
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_remove', options

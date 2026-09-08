@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex list -- List workspace namespaces with metadata only
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  List workspace namespaces with metadata only
+
+  $ #{cmd} [<options>] [<type>] [<prefix>]
+
+  -h--help Print this help
+  -t--type* Namespace to list: conversations, briefs, artifacts, entities, lists, properties (executions), or all (every namespace with counts)
+  -p--prefix* Only names starting with this prefix
+  -o--offset* Skip the first N entries (pagination)
+  -l--limit* Maximum entries per page
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+type, prefix = IndiferentHash.process_options options, :type, :prefix
+
+type = ARGV.shift if type.nil?
+prefix = ARGV.shift if prefix.nil?
+
+
+
+options[:type] = type
+options[:prefix] = prefix
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_list', options

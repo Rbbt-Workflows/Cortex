@@ -1,0 +1,57 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex property_update -- Update an existing property definition
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Update an existing property definition
+
+  $ #{cmd} [<options>] <entity_type> <property>
+
+  -h--help Print this help
+  -et--entity_type* Entity type (Ruby constant path, e.g. Gene)
+  -p--property* Property name (snake_case)
+  -e--expected_version* Version being updated (optimistic concurrency)
+  -b--body* New Ruby body; omit to keep the current one
+  -d--description* New description; omit to keep the current one
+  -pr--property_type* Property arity: single, array, or both; omit to keep the current one
+  -r--result_type* Scout result type; omit to keep the current one
+  -a--arguments* Argument specs in JSON; omit to keep the current ones
+  -de--dependencies* Same-entity property names; omit to keep the current ones
+  -t--test_entity* Entity identifier for a pre-activation smoke execution
+  -te--test_arguments* Arguments for the smoke execution (JSON object)
+  -ag--agent* Agent name recorded in provenance
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+entity_type, property, expected_version = IndiferentHash.process_options options, :entity_type, :property, :expected_version
+
+entity_type = ARGV.shift if entity_type.nil?
+property = ARGV.shift if property.nil?
+
+raise MissingParameterException, :entity_type if entity_type.nil?
+raise MissingParameterException, :property if property.nil?
+raise MissingParameterException, :expected_version if expected_version.nil?
+
+options[:entity_type] = entity_type
+options[:property] = property
+options[:expected_version] = expected_version
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_property_update', options

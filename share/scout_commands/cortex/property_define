@@ -1,0 +1,56 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex property_define -- Define (create) a new executable entity property
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Define (create) a new executable entity property
+
+  $ #{cmd} [<options>] <entity_type> <property>
+
+  -h--help Print this help
+  -et--entity_type* Entity type (Ruby constant path, e.g. Gene)
+  -p--property* Property name (snake_case)
+  -b--body* Ruby body; the entity is the receiver, arguments are locals
+  -d--description* Human-readable description (documentation only)
+  -pr--property_type* Property arity: single entity, entity list, or both
+  -r--result_type* Scout result type (string, integer, float, array, tsv, json...)
+  -a--arguments* Argument specs in JSON [{name,type,description,required,default}]
+  -de--dependencies* Same-entity property names this property depends on
+  -t--test_entity* Entity identifier for a pre-activation smoke execution
+  -te--test_arguments* Arguments for the smoke execution (JSON object)
+  -ag--agent* Agent name recorded in provenance
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+entity_type, property, body = IndiferentHash.process_options options, :entity_type, :property, :body
+
+entity_type = ARGV.shift if entity_type.nil?
+property = ARGV.shift if property.nil?
+
+raise MissingParameterException, :entity_type if entity_type.nil?
+raise MissingParameterException, :property if property.nil?
+raise MissingParameterException, :body if body.nil?
+
+options[:entity_type] = entity_type
+options[:property] = property
+options[:body] = body
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_property_define', options

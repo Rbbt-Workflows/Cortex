@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex read_list -- Read the entity ids (and optional meta) of a named entity list
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Read the entity ids (and optional meta) of a named entity list
+
+  $ #{cmd} [<options>] <entity_type> <list>
+
+  -h--help Print this help
+  -et--entity_type* Entity type of the list (e.g. TF)
+  -l--list* List name under var/cortex/lists/<entity_type>/
+  -i--include_meta Also report the .meta sidecar (description, entity_options, provenance)
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+entity_type, list = IndiferentHash.process_options options, :entity_type, :list
+
+entity_type = ARGV.shift if entity_type.nil?
+list = ARGV.shift if list.nil?
+
+raise MissingParameterException, :entity_type if entity_type.nil?
+raise MissingParameterException, :list if list.nil?
+
+options[:entity_type] = entity_type
+options[:list] = list
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_read_list', options

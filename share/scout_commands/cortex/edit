@@ -1,0 +1,51 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex edit -- Make a targeted, exact text edit to an existing artifact
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Make a targeted, exact text edit to an existing artifact
+
+  $ #{cmd} [<options>] <name> <find> <replace>
+
+  -h--help Print this help
+  -n--name* Artifact path relative to var/cortex/artifacts
+  -f--find* Exact text to find in the artifact
+  -r--replace* Replacement text
+  -a--all Replace every occurrence (required when find matches more than once)
+  -ag--agent* Optional agent name recorded in the .meta version entry
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+name, find, replace = IndiferentHash.process_options options, :name, :find, :replace
+
+name = ARGV.shift if name.nil?
+find = ARGV.shift if find.nil?
+replace = ARGV.shift if replace.nil?
+
+raise MissingParameterException, :name if name.nil?
+raise MissingParameterException, :find if find.nil?
+raise MissingParameterException, :replace if replace.nil?
+
+options[:name] = name
+options[:find] = find
+options[:replace] = replace
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_edit', options

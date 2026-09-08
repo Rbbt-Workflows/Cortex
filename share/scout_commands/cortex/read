@@ -1,0 +1,49 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex read -- Read conversations, briefs, or artifacts
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Read conversations, briefs, or artifacts
+
+  $ #{cmd} [<options>] <name> <type>
+
+  -h--help Print this help
+  -n--name* Name of the conversation, brief, artifact, or entity list (artifacts and lists may include subdirs, e.g. claims/C42.md or TF/C01)
+  -t--type* Namespace of the item to read
+  -l--last* Trailing N messages of a conversation/brief (full content)
+  -r--range* Inclusive message index range "a-b" (e.g. "0-3") of a conversation/brief
+  -s--start_line* First line to return for artifacts (1-based)
+  -li--lines* Maximum lines per artifact page
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+name, type = IndiferentHash.process_options options, :name, :type
+
+name = ARGV.shift if name.nil?
+type = ARGV.shift if type.nil?
+
+raise MissingParameterException, :name if name.nil?
+raise MissingParameterException, :type if type.nil?
+
+options[:name] = name
+options[:type] = type
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_read', options
