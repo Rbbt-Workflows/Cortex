@@ -2,6 +2,7 @@ require 'scout'
 require 'scout/workflow/entity'
 require 'json'
 require 'digest/sha2'
+require 'timeout'
 require 'Cortex/properties'
 
 # ==========================================================================
@@ -44,7 +45,21 @@ module Cortex
   ENTITY_RESERVED_ARGUMENT = %w(entity list jobname task _cortex_definition
                                 _cortex_definition_version _cortex_definition_digest).freeze
   ENTITY_PROPERTY_TYPES    = %w(single array both).freeze
+  ENTITY_PROPERTY_TIMEOUT_DEFAULT = 3600
   ENTITY_HISTORY_DIGITS    = 6
+
+  # Raised when an entity property execution exceeds its configured timeout.
+  #
+  # Deliberately derived from Exception (NOT StandardError): a bare `rescue`
+  # inside a property body cannot swallow it, unlike Timeout::Error.  See
+  # claims/entity_property_timeout.md and the Observation
+  # entity_property_timeout_semantics for the probe evidence.
+  class EntityPropertyTimeout < Exception
+    def message
+      "Entity property execution exceeded the timeout: see config key 'timeout' " \
+      "(tokens entity_property, cortex; env CORTEX_ENTITY_PROPERTY_TIMEOUT)"
+    end
+  end
 
   class << self
     # ------------------------------------------------------------------
@@ -995,8 +1010,20 @@ module Cortex
                                                 version: 1, digest: 'smoke'
       entity = mod.setup test_entity
       job    = entity.send "#{property}_job", test_arguments
-      job.run
-      job.load
+      # The smoke run executes candidate trusted Ruby; bound it by the same
+      # timeout as a real execution so a hanging body cannot wedge the
+      # define/update/validate task.  A hit surfaces as the smoke-test
+      # ScoutException below (the message names the config key).
+      entity_property_with_timeout(entity_property_timeout(nil)) do
+        job.run
+        job.load
+      end
+    rescue Cortex::EntityPropertyTimeout
+      raise ScoutException,
+            "Smoke test failed for #{type}/#{property} with entity " \
+            "#{test_entity.inspect} (execution exceeded the timeout: see " \
+            "config key 'timeout', tokens entity_property/cortex; env " \
+            "CORTEX_ENTITY_PROPERTY_TIMEOUT). The definition was not written."
     rescue Exception => e
       backtrace = ENV["CORTEX_VERBOSE_BACKTRACE"].to_s.downcase == "true" ?
                     "\n" + Array(e.backtrace).first(8).join("\n") : ""
@@ -1384,7 +1411,7 @@ module Cortex
 
     def run_entity_property(entity_type:, property:, entity:, arguments: {},
                             entity_options: nil, update: false, list_name: nil,
-                            job: nil, agent: 'Cortex')
+                            job: nil, agent: 'Cortex', timeout: nil)
       job, jobs = entity_property_job(entity_type: entity_type, property: property,
                                       entity: entity, arguments: arguments,
                                       entity_options: entity_options, list_name: list_name)
@@ -1403,7 +1430,16 @@ module Cortex
       jobs.each do |j|
         j.clean if update || (stale_list && j.done? && Path.newer?(j.path, stale_list))
       end
-      jobs.each { |j| j.run unless j.done? }
+
+      # The timeout bounds EXECUTION only (Step#run and, for fan-out
+      # receivers, the per-member loop): the invalidation pass above is
+      # bookkeeping and must not count against the budget.  A hit raises
+      # EntityPropertyTimeout; the interrupted Step stays status :error with
+      # no result file, so a later run recomputes at the same path.  Cache
+      # hits (done?) skip Step#run and are therefore never re-timed.
+      entity_property_with_timeout(entity_property_timeout(timeout)) do
+        jobs.each { |j| j.run unless j.done? }
+      end
 
       defn = property_definition(entity_type, property) || {}
       vector_run = %w[both array].include?(defn['property_type'].to_s)
@@ -1465,6 +1501,41 @@ module Cortex
 
       [primary, result]
     end
+
+    # Timeout (in seconds) bounding ONE entity property execution, or nil to
+    # run unbounded.  Resolution mirrors ComputerUse's sandbox_run timeout:
+    # config key 'timeout' with tokens entity_property / cortex, overridable
+    # through CORTEX_ENTITY_PROPERTY_TIMEOUT (or ENTITY_PROPERTY_TIMEOUT), with
+    # a 3600s default.  The usual falsy spellings disable the bound entirely.
+    def entity_property_timeout(seconds = nil)
+      timeout = seconds
+      timeout = Scout::Config.get('timeout', 'entity_property', 'cortex',
+                                  env: 'CORTEX_ENTITY_PROPERTY_TIMEOUT,ENTITY_PROPERTY_TIMEOUT',
+                                  default: ENTITY_PROPERTY_TIMEOUT_DEFAULT) if timeout.nil?
+      case timeout.to_s
+      when 'false', 'FALSE', 'False', 'no', 'none', 'nil', '0', ''
+        nil
+      else
+        timeout.to_i
+      end
+    end
+
+    # Run +block+ bounded by +seconds+ (a whole number of seconds), raising
+    # EntityPropertyTimeout at the deadline.  nil or non-positive seconds run
+    # the block unbounded.
+    #
+    # In-process only (Timeout delivers the exception to the thread running
+    # the body, which is how run_entity_property executes): forked or remote
+    # steps need a wall-clock check at join time instead.
+    def entity_property_with_timeout(seconds, &block)
+      return block.call if seconds.nil? || seconds.to_i <= 0
+      Timeout.timeout(seconds.to_i, EntityPropertyTimeout, &block)
+    end
+
+    # The body is executed inside Timeout.timeout in run_entity_property, so
+    # the deadline applies to Step#run AND the per-member fan-out loop.  A hit
+    # leaves the running Step status :error with no result file (observed), so
+    # a later run recomputes at the same path.
 
   end
 

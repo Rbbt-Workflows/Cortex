@@ -214,7 +214,7 @@ class TestCortexBriefTools < Test::Unit::TestCase
     info = Cortex.task_info(:cortex_brief)
     # Exact-schema pin: stronger than a per-input probe, it freezes the
     # whole input surface (no extra input may appear).
-    assert_equal [:conversation, :prompt, :agent, :tools], info[:inputs]
+    assert_equal [:conversation, :prompt, :agent, :tools, :reply], info[:inputs]
     assert info[:input_types][:tools] == :array,
            "tools input is not :array typed: #{info[:input_types].inspect}"
   end

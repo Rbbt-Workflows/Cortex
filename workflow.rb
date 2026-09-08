@@ -98,7 +98,11 @@ module Cortex
             end
     agent.start_chat.tool 'Cortex'
     agent.follow chat if chat && !chat.empty?
-    agent.save_file = LLM::Agent.canonical_chat_file(files_dir, agent_conversation) if agent.save_file.nil?
+    # scout-ai 2.0.0 has no LLM::Agent.canonical_chat_file; the canonical
+    # layout rule (AgentWorkflow#log_agent) is <files_dir>/<agent>.chat,
+    # where the agent name is the part before the optional '/brief'.
+    agent_name = agent_conversation.nil? ? nil : agent_conversation.partition('/').first
+    agent.save_file = files_dir["#{agent_name || 'agent'}.chat"] if agent.save_file.nil?
     agent
   end
 

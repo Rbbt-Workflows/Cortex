@@ -47,7 +47,8 @@ module TestEntitiesHelpers
       result_type: rest.delete(:result_type) || :string,
       arguments: rest.delete(:arguments) || [],
       dependencies: rest.delete(:dependencies) || [],
-      agent: rest.delete(:agent) || 'test', job: rest.delete(:job) || 'test_entities')
+      agent: rest.delete(:agent) || 'test', job: rest.delete(:job) || 'test_entities',
+      test_entity: rest.delete(:test_entity), test_arguments: rest.delete(:test_arguments))
   end
 
   def run_prop(type, property, entity, arguments: {}, update: false)
@@ -394,4 +395,112 @@ class TestCortexEntities < Test::Unit::TestCase
     job, = run_prop('ProbeGene', 'pathy', 'Tp53')
     assert_match(%r{/var/jobs/ProbeGene/pathy/Tp53}, job.path)
   end
-end
+  # ------------------------------------------------------------------
+  # execution timeout
+  # ------------------------------------------------------------------
+  def test_entity_property_timeout_resolution
+    assert_equal 3600, Cortex.entity_property_timeout
+    assert_equal 7,    Cortex.entity_property_timeout(7)
+    assert_nil         Cortex.entity_property_timeout('none')
+    assert_nil         Cortex.entity_property_timeout(0)
+    assert_nil         Cortex.entity_property_timeout('false')
+
+    Scout::Config::CACHE['timeout'] = [[['entity_property'], '2']]
+    assert_equal 2, Cortex.entity_property_timeout
+    Scout::Config::CACHE['timeout'] = [[['entity_property'], 'false']]
+    assert_nil     Cortex.entity_property_timeout
+  ensure
+    Scout::Config::CACHE.delete('timeout')
+    ENV.delete('CORTEX_ENTITY_PROPERTY_TIMEOUT')
+  end
+
+  def test_entity_property_timeout_interrupts_execution
+    define('ProbeGene', 'slow', body: 'sleep 30; entity.to_s')
+
+    t0 = Time.now
+    e  = assert_raises(Cortex::EntityPropertyTimeout) do
+      Cortex.run_entity_property(entity_type: 'ProbeGene', property: 'slow',
+                                 entity: 'E1', timeout: 1)
+    end
+    assert_operator Time.now - t0, :<, 10, 'timeout must interrupt a sleeping body'
+
+    j, = Cortex.entity_property_job(entity_type: 'ProbeGene', property: 'slow', entity: 'E1')
+    assert_equal 'error', j.info[:status].to_s
+    refute File.exist?(j.path), 'interrupted step must leave no result file'
+
+    # rerun unbounded recomputes at the same path
+    job, result = Cortex.run_entity_property(entity_type: 'ProbeGene', property: 'slow',
+                                             entity: 'E1', timeout: 'none')
+    assert_equal 'done', job.info[:status].to_s
+    assert_equal 'E1', result
+  end
+
+  def test_entity_property_timeout_does_not_retime_cache_hits
+    define('ProbeGene', 'fast', body: 'entity.to_s')
+    job, _ = run_prop('ProbeGene', 'fast', 'F1')
+    assert_equal 'done', job.info[:status].to_s
+
+    t0 = Time.now
+    _, result = Cortex.run_entity_property(entity_type: 'ProbeGene', property: 'fast',
+                                           entity: 'F1', timeout: 1)
+    assert_equal 'F1', result
+    assert_operator Time.now - t0, :<, 2
+  end
+
+  def test_entity_property_timeout_bounded_fanout_list
+    define('ProbeGene', 'slow', body: 'sleep 5; entity.to_s')
+
+    list_path = File.join(LIBDIR, 'var/cortex/lists/ProbeGene', 'panel')
+    FileUtils.mkdir_p(File.dirname(list_path))
+    File.write(list_path, "M1\nM2\nM3\n")
+
+    t0 = Time.now
+    assert_raises(Cortex::EntityPropertyTimeout) do
+      Cortex.run_entity_property(entity_type: 'ProbeGene', property: 'slow',
+                                 entity: %w[M1 M2 M3], list_name: 'panel', timeout: 6)
+    end
+    assert_operator Time.now - t0, :<, 15, 'fan-out loop must be bounded too'
+  end
+
+  def test_cortex_entity_property_task_timeout_input
+    define('ProbeGene', 'slow', body: 'sleep 30; entity.to_s')
+
+    job = Cortex.job(:cortex_entity_property, 'timeout1',
+                     entity_type: 'ProbeGene', property: 'slow', entity: 'E1', timeout: 1)
+    e = assert_raises(ScoutException) { job.exec }
+    assert_match(/timeout/, e.message)
+  end
+
+  def test_entity_property_timeout_bounds_smoke_tests
+    body = 'sleep 30; entity.to_s'
+
+    # validate: the smoke error lands in the errors list, not a wedge
+    job = Cortex.job(:cortex_property_validate, 'smoke-timeout1',
+                     entity_type: 'ProbeGene', property: 'hang',
+                     body: body, property_type: 'single', result_type: 'string',
+                     arguments: '[]', dependencies: [],
+                     test_entity: 'S1', test_arguments: '{}')
+    Scout::Config::CACHE['timeout'] = [[['entity_property'], '2']]
+    t0 = Time.now
+    job.run
+    res = JSON.parse(File.read(job.path))
+    assert_operator Time.now - t0, :<, 10, 'validate smoke must be timeout-bounded'
+    refute res['valid']
+    assert res['errors'].any? { |e| e =~ /timeout/i },
+           "smoke timeout not reported: #{res['errors'].inspect}"
+
+    # define: the smoke hit raises and writes no definition
+    t0 = Time.now
+    e = assert_raises(ScoutException) do
+      define('ProbeGene', 'hang2', body: body, test_entity: 'S1', test_arguments: {})
+    end
+    assert_operator Time.now - t0, :<, 10, 'define smoke must be timeout-bounded'
+    assert_match(/timeout/i, e.message)
+    assert_nil Cortex.property_definition('ProbeGene', 'hang2'),
+               'define must not leave a definition behind after a smoke timeout'
+  ensure
+    Scout::Config::CACHE.delete('timeout')
+    ENV.delete('CORTEX_ENTITY_PROPERTY_TIMEOUT')
+  end
+
+  end

@@ -26,6 +26,8 @@ navigation, management, and provenance.
 Read the [user documentation](user/). It explains the workspace layout,
 briefing agents, continuing conversations, searching and reading research
 objects, writing and managing artifacts, and following delegation receipts.
+For command-line access the same tasks are wrapped as `scout cortex`
+subcommands — see [user/CortexCLI.md](user/CortexCLI.md).
 
 ### I want to change how Cortex works
 

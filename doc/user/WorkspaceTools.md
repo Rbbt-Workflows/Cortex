@@ -53,6 +53,14 @@ Rules of thumb:
 - Before running anything, check `cortex_list type=properties`: an
   already-investigated question shows up there with its arguments and
   producing jobs.
+- Execution is timeout-bounded (per-call `timeout:` input; config key
+  `timeout` with tokens `entity_property`/`cortex`; env
+  `CORTEX_ENTITY_PROPERTY_TIMEOUT`; default 3600s; `0`/`false`/`none`
+  runs unbounded). A timeout hit leaves the Step in `error` with no
+  result file — rerun with a larger bound to recompute. The same bound
+  applies to the optional smoke executions of `cortex_property_define`,
+  `cortex_property_update` and `cortex_property_validate`: a hanging
+  candidate body fails those checks instead of wedging the task.
 
 ---
 

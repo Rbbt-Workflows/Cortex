@@ -207,13 +207,22 @@ module Cortex
                                              version: 1, digest: 'smoke')
         entity = mod.setup test_entity
         job    = entity.send "#{property}_job", (test_arguments || {})
-        job.run
-        result = job.load
+        # Bound the candidate execution like a real run: a hanging body
+        # must not wedge the validate task.  EntityPropertyTimeout is an
+        # Exception (not StandardError), so route it into the errors list
+        # explicitly.
+        Cortex.entity_property_with_timeout(Cortex.entity_property_timeout(nil)) do
+          job.run
+          result = job.load
+        end
         smoke  = { job: job.short_path, result: result }
         # The smoke job is a throwaway artifact of validation, not evidence;
         # drop it so var/jobs only keeps real property jobs.
         job.clean
         checks << 'smoke: executed candidate, job cleaned'
+      rescue Cortex::EntityPropertyTimeout => e
+        errors << "smoke: #{e.class}: #{e.message}"
+        job.clean if job && job.respond_to?(:clean)
       rescue StandardError => e
         errors << "smoke: #{e.class}: #{e.message}"
       end
@@ -306,8 +315,9 @@ module Cortex
   input :arguments, :text, 'Property arguments (JSON object, never positional)', {}
   input :entity_options, :text, 'Entity annotation options (JSON object)', nil
   input :update, :boolean, 'Clean the property job and recompute it', false
+  input :timeout, :integer, 'Execution timeout in seconds for this run; omit to use the configured default (config key timeout, tokens entity_property/cortex; env CORTEX_ENTITY_PROPERTY_TIMEOUT; default 3600). Set 0, "false" or "none" to run unbounded', nil
   task :cortex_entity_property => :json do |entity_type, property, list, entity, arguments,
-                                          entity_options, update|
+                                          entity_options, update, timeout|
     raise ScoutException,
           "Provide either entity or list, not both" if !entity.to_s.strip.empty? && !list.to_s.strip.empty?
     raise ScoutException,
@@ -357,7 +367,9 @@ module Cortex
     job, result = begin Cortex.run_entity_property(entity_type: entity_type, property: property,
                                                    entity: entity, arguments: arguments || {},
                                                    entity_options: entity_options, update: update,
-                                                   list_name: list_name)
+                                                   list_name: list_name, timeout: timeout)
+                  rescue Cortex::EntityPropertyTimeout
+                    raise ScoutException, $!.message
                   rescue ScoutException
                     raise ScoutException
                   rescue Exception

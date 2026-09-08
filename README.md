@@ -250,6 +250,11 @@ the workspace.
 
 ## Examples
 
+Every example below is also available as a dedicated `scout cortex`
+subcommand (see `scout cortex --help`), e.g. `scout cortex brief --conversation
+bash-math ...`. The subcommands take the same inputs as their tasks and print
+the task result; `scout cortex task <task> ...` is the generic passthrough.
+
 Brief an agent for later reuse:
 
 ```bash
@@ -633,6 +638,31 @@ multi-entity work.
 Discipline: never transcribe numerical evidence when a property can return
 it — claims and artifacts should cite the property job that produced their
 evidence.
+
+### Execution timeout
+
+Property execution is bounded by a timeout, mirroring the ComputerUse
+sandbox (`sandbox_run`):
+
+* explicit per-call: `timeout:` on `cortex_entity_property` (seconds).
+  `0`, `"false"` or `"none"` runs unbounded;
+* config: key `timeout`, tokens `entity_property`/`cortex` (lowest
+  numeric priority wins), e.g. a config line `timeout entity_property 900`
+  or `Scout::Config.set({'timeout' => '900'}, :entity_property, :cortex)`;
+* env: `CORTEX_ENTITY_PROPERTY_TIMEOUT` (or `ENTITY_PROPERTY_TIMEOUT`);
+* default 3600s.
+
+The bound covers execution only — `Step#run` and, for list receivers, the
+per-member loop — not the cache-hit fast path, registry writes, or the
+invalidation bookkeeping. A hit leaves the interrupted Step with status
+`error` and no result file, so a later run (with a larger bound or
+unbounded) recomputes at the same path.
+
+The same bound applies to the optional smoke executions of
+`cortex_property_define`, `cortex_property_update` and
+`cortex_property_validate`: a hanging candidate body surfaces as a smoke
+failure (and, for define/update, no definition is written) instead of
+wedging the task.
 
 ## cortex_activity
 Report accumulated workspace activity around ONE entity
