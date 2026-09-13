@@ -99,6 +99,7 @@ module Cortex
     else
       tools = Cortex.parse_tools_input tools
       save_brief conversation, prompt, [], agent: agent.to_s, tools: tools
+      {content: 'Conversation saved'}
     end
   end
 
