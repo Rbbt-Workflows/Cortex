@@ -242,6 +242,18 @@ are a pure function of (definition identity, argument set, receiver,
 dependencies): identical inputs always land on the same address, and a
 done result replays from cache.
 
+Job placement: every entity module Cortex builds is annotated
+`directory.path_maps = directory.path_maps.merge(default: :current)`
+(`lib/Cortex/entities.rb`, `entity_new_module`), so property results root at
+the `:current` map — the workflow checkout (`./var/jobs/...`) rather than
+`~/.scout/var/jobs`. The annotation applies on every module build; it decides
+placement exactly when no `var/jobs/<Type>/...` directory exists anywhere in
+the map order (`Path#find` is first-existing-wins). Labels whose old-root
+directories already exist (e.g. foreign types with pre-change evidence under
+`~/.scout`) keep replaying there: same definition, two roots, both resolvable
+through `cortex_result`. Validated in
+`research/impl-step9-current-placement-validation.md`.
+
 Discipline: never transcribe numerical evidence when a property can return
 it — claims and artifacts should cite the address that produced their
 evidence.

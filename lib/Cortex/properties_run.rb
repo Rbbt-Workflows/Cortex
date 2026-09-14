@@ -137,21 +137,27 @@ module Cortex
               "No active entity properties for type #{type}: define one with " \
               'cortex_property_define first' if mod.nil?
 
-        defn = Cortex.property_definition(type, property)
-        raise ScoutException,
-              "Entity property #{type}/#{property} is not active. Active: " \
-              "#{Cortex.property_definitions(type).collect { |d| d[:property] } * ', '}." if defn.nil? || !defn['active']
-
-        # Input validation BEFORE any Step is built; failure carries the
-        # §2.6 envelope with verdict argument_error.
         begin
-          Cortex.entity_validate_arguments!(defn, arguments,
-                                            Cortex.entity_argument_closure(type, property))
-        rescue StandardError => e
-          error = Cortex::Error.envelope(e, context: { phase: 'input_validation',
-                                                       entity_type: type,
-                                                       property: property })
-          raise ParameterException, JSON.generate(error)
+          defn = Cortex.property_definition(type, property)
+          raise ScoutException,
+            "Entity property #{type}/#{property} is not active. Active: " \
+            "#{Cortex.property_definitions(type).collect { |d| d[:property] } * ', '}." if defn.nil? || !defn['active']
+
+          # Input validation BEFORE any Step is built; failure carries the
+          # §2.6 envelope with verdict argument_error.
+          begin
+            Cortex.entity_validate_arguments!(defn, arguments,
+                                              Cortex.entity_argument_closure(type, property))
+          rescue StandardError => e
+            error = Cortex::Error.envelope(e, context: { phase: 'input_validation',
+                                                         entity_type: type,
+                                                         property: property })
+            raise ParameterException, JSON.generate(error)
+          end
+
+          vector = %w[both array].include?(defn['property_type'].to_s)
+        rescue
+          vector = Array === receiver
         end
 
         # Named-list receivers resolve to their member ids up front; the
@@ -162,46 +168,60 @@ module Cortex
           named_list = list_ref.include?('/') ? list_ref.split('/', 2).last : list_ref
           members, = Cortex.read_list(type, named_list)
           raise ScoutException,
-                "Named list #{type}/#{named_list} does not exist. Create it " \
-                'with cortex_write_list first' if members.nil?
+            "Named list #{type}/#{named_list} does not exist. Create it " \
+            'with cortex_write_list first' if members.nil?
           receiver = members
         end
 
-        vector = %w[both array].include?(defn['property_type'].to_s)
         scalar_receiver = !(Array === receiver)
 
-        jobs = build_jobs(mod, type, property, receiver, arguments,
-                          vector: vector, entity_options: entity_options)
+        begin
+          jobs = build_jobs(mod, type, property, receiver, arguments,
+                            vector: vector, entity_options: entity_options)
 
-        # update / staleness bookkeeping (NOT counted against the timeout):
-        #   update:true force-cleans everything; a named-list run whose list
-        #   file is newer than a DONE Step is stale and recomputes.
-        stale_list = stale_list_path(type, named_list, update)
-        jobs.each do |j|
-          j.clean if update || (stale_list && j.done? &&
-                                Path.newer?(j.path, stale_list))
-        end
+          # update / staleness bookkeeping (NOT counted against the timeout):
+          #   update:true force-cleans everything; a named-list run whose list
+          #   file is newer than a DONE Step is stale and recomputes.
+          stale_list = stale_list_path(type, named_list, update)
+          jobs.each do |j|
+            j.clean if update || (stale_list && j.done? &&
+                                  Path.newer?(j.path, stale_list))
+          end
 
-        receipts = execute_jobs(jobs, arguments: arguments,
+          receipts = execute_jobs(jobs, arguments: arguments,
                                   scalar_receiver: scalar_receiver,
                                   vector: vector, named_list: named_list,
                                   timeout: timeout)
 
-        # Fan-out failure counts (§2.6): annotate errored member receipts.
-        if receipts.length > 1
-          total  = receipts.length
-          failed = receipts.count { |r| r[:error] }
-          receipts.each do |r|
-            r[:failed_members] = failed if r[:error]
-            r[:total_members]  = total
+          # Fan-out failure counts (§2.6): annotate errored member receipts.
+          if receipts.length > 1
+            total  = receipts.length
+            failed = receipts.count { |r| r[:error] }
+            receipts.each do |r|
+              r[:failed_members] = failed if r[:error]
+              r[:total_members]  = total
+            end
           end
-        end
 
-        # §2.7: vector runs return ONE receipt; :single fan-out returns an
-        # array of per-member receipts; a scalar :single receiver returns
-        # its single receipt unwrapped.
-        return receipts.first if vector || (scalar_receiver && receipts.length == 1)
-        receipts
+          # §2.7: vector runs return ONE receipt; :single fan-out returns an
+          # array of per-member receipts; a scalar :single receiver returns
+          # its single receipt unwrapped.
+          return receipts.first if vector || (scalar_receiver && receipts.length == 1)
+          receipts
+        rescue
+          receiver = mod.setup(receiver)
+          value = receiver.send(property, *arguments)
+
+          Cortex::Receipt.build(
+            entity_type: type,
+            property: property,
+            receiver: receipt_receiver(nil, receiver, vector, named_list),
+            arguments: arguments,
+            defn: nil,
+            step: nil,
+            value: value
+          ).tap { |r| r[:entity_list] = "#{workflow_name(job)}/#{named_list}" if named_list }
+        end
       end
 
       # Public helper for callers that need the Step(s) WITHOUT running:
@@ -254,9 +274,9 @@ module Cortex
         err = {
           exception_class: 'ParameterException',
           exception_message: "Cannot resolve address #{ref.inspect}: no such " \
-                             'materialized result, and no unique last-16-hex ' \
-                             "match. Candidates in #{dir}: " \
-                             "#{candidates.empty? ? '(directory empty or missing)' : candidates * ', '}",
+          'materialized result, and no unique last-16-hex ' \
+          "match. Candidates in #{dir}: " \
+          "#{candidates.empty? ? '(directory empty or missing)' : candidates * ', '}",
           message_is_bare: false,
           backtrace_head: [],
           verdict: Cortex::Error::VERDICT_ARGUMENT,
@@ -276,7 +296,7 @@ module Cortex
 
         options = parse_entity_options(entity_options)
         args    = arguments.merge(Cortex.entity_identity_inputs(type, property))
-                           .merge(options)
+          .merge(options)
 
         if vector
           # ONE vector Step keyed "Default"; a scalar receiver is promoted to
@@ -285,7 +305,7 @@ module Cortex
           [mod.job(property.to_sym, 'Default', args.merge(list: list))]
         else
           annotated = Array === receiver ? mod.setup(receiver, options)
-                                         : mod.setup(receiver.to_s, options)
+          : mod.setup(receiver.to_s, options)
           Array(annotated).collect { |e| mod.job(property.to_sym, e, args) }
         end
       end
@@ -343,7 +363,7 @@ module Cortex
         (job.respond_to?(:task) && job.task &&
          job.task.workflow.respond_to?(:entity_name) &&
          job.task.workflow.entity_name.to_s) ||
-          job.info[:workflow].to_s.gsub('::', '_').downcase
+        job.info[:workflow].to_s.gsub('::', '_').downcase
       end
 
       # Receipt receiver label per §2.7:
@@ -359,7 +379,7 @@ module Cortex
           out[:list] = named_list if named_list
           out
         else
-          job_member(job)
+          job_member(job) if job
         end
       end
 
@@ -424,7 +444,7 @@ module Cortex
       # var/jobs/<Type>/<property>/.  Reports loudly; ambiguity is an error.
       def recover_by_suffix(ref)
         label = File.basename(ref).sub(/\.info\z/, '')
-                                .sub(/\.(tsv|json|yaml|marshal)\z/, '')
+          .sub(/\.(tsv|json|yaml|marshal)\z/, '')
         m = label.match(/([0-9a-f]{16,32})\z/)
         return nil unless m
         # Recovery window is the FULL hex tail (up to 32), not the last 16:
@@ -434,8 +454,8 @@ module Cortex
         # recognized; any 16..32-hex tail matches as a suffix.
         hex = m[1]
         candidates = (16..hex.length)
-                      .collect { |n| hex[-n, n] }
-                      .select { |t| t =~ /\A[0-9a-f]+\z/ }
+          .collect { |n| hex[-n, n] }
+          .select { |t| t =~ /\A[0-9a-f]+\z/ }
 
         type, property, = split_address(ref)
         return nil if type.nil? || property.nil?
@@ -450,23 +470,23 @@ module Cortex
         files = Dir.glob(File.join(dir, '*')).reject { |p| p.end_with?('.info') }
         matches = files.select do |p|
           label = File.basename(p)
-                     .sub(/\.(tsv|json|yaml|marshal)\z/, '')
+            .sub(/\.(tsv|json|yaml|marshal)\z/, '')
           candidates.any? { |t| label.end_with?(t) }
         end.uniq
         return nil if matches.empty?
 
         matched_suffix = candidates.find do |t|
           File.basename(matches.first)
-              .sub(/\.(tsv|json|yaml|marshal)\z/, '')
-              .end_with?(t)
+            .sub(/\.(tsv|json|yaml|marshal)\z/, '')
+            .end_with?(t)
         end || hex[-16, 16]
 
         if matches.length > 1
           err = {
             exception_class: 'ParameterException',
             exception_message: "Ambiguous hex-tail recovery for #{ref.inspect}: " \
-                               "#{matches.length} candidates match #{matched_suffix.inspect} in " \
-                               "#{dir}: #{matches.collect { |x| File.basename(x) } * ', '}",
+            "#{matches.length} candidates match #{matched_suffix.inspect} in " \
+            "#{dir}: #{matches.collect { |x| File.basename(x) } * ', '}",
             message_is_bare: false,
             backtrace_head: [],
             verdict: Cortex::Error::VERDICT_ARGUMENT,
@@ -507,7 +527,7 @@ module Cortex
       def directory_candidates(dir)
         return [] unless dir
         Dir.glob(File.join(dir, '*')).reject { |p| p.end_with?('.info') }
-           .collect { |p| File.basename(p) }.sort
+          .collect { |p| File.basename(p) }.sort
       end
     end
   end

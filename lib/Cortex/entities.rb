@@ -52,7 +52,7 @@ module Cortex
   ENTITIES_NAMESPACE       = :entities
   ENTITY_META_SCHEMA       = 1
   ENTITY_TYPE_RE           = /\A[A-Z][A-Za-z0-9]*(::[A-Z][A-Za-z0-9]*)*\z/
-  ENTITY_NAME_RE           = /\A[a-z][a-z0-9_]*\z/
+  ENTITY_NAME_RE           = /\A[a-z][a-z0-9_?]*\z/
   ENTITY_RESERVED_PROPERTY = %w(job entity entity_list inputs step dependencies
                                 task_alias property setup properties
                                 all_properties id format).freeze
@@ -482,7 +482,9 @@ module Cortex
 
       # ScoutCoder: By default new entities generate property jobs in the
       # current directory
-      mod.directory.path_maps[:default] = :current
+      directory_path = Scout.var.jobs[mod.name]
+      directory_path.path_maps = directory.path_maps.merge(default: :current)
+      mod.directory = directory_path
       ENTITY_CONVENTIONAL_ANNOTATIONS.each do |annotation|
         next if mod.annotations.include?(annotation)
         mod.annotation annotation
@@ -755,12 +757,17 @@ end
 
       if definitions.empty?
         managed_entity_registry.delete type
-        return nil
+        #return nil
       end
 
       registry = entity_modules type
       existing = registry[digest]
       return existing if existing
+
+      begin
+        return Kernel.const_get(type)
+      rescue
+      end
 
       # Fresh generation: redefining same-named tasks in a live module is
       # unreliable (Persist.memory memoizes Task objects), so each manifest

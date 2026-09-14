@@ -69,7 +69,12 @@ line inside the conversation.
 
 Given `job=Cortex/continue/Default_965e....chat`:
 
-1. The path is under `Scout.var.jobs` (typically `~/.scout/var/jobs`).
+1. The path is under `Scout.var.jobs`. Chat jobs (the `continue`/
+   `cortex_continue` case) typically live at `~/.scout/var/jobs`; entity
+   property jobs root at the `:current` map — the workflow checkout
+   (`./var/jobs/<Type>/...`) — by `entity_new_module`'s placement
+   annotation (see Entities.md "Job placement"; labels whose old-root
+   directories exist keep replaying there, first-existing-wins).
 2. The chat file itself is the full child conversation including all tool
    calls and outputs.
 3. The sibling job directory (`.../Default_965e....files/`) holds artifacts

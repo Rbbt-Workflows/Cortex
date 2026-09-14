@@ -139,14 +139,23 @@ agent and producing job. No prefix coupling: the brief name does not need
 to contain the agent name, and the legacy `var/cortex/<Agent>/<brief>`
 location is detected and reported.
 
-## Known environment limitation: property-step outputs under bwrap
+## Known environment limitation: property-step outputs under bwrap (SUPERSEDED)
 
-Property steps persist their JSON results under the Scout jobs tree. The
-default ComputerUse sandbox only mounts `~/.rbbt/var/jobs/{Cortex,Planned}`,
-so from inside that sandbox property-step JSON outputs are machine-readable
-but machine-unreachable (observed in the AGS pilot 2 audit; DEFECT-3 in
-`AGS/var/cortex/artifacts/pilot2/defects.md`). Mitigations, both supported
-without code changes:
+HISTORICAL (AGS pilot 2 audit, DEFECT-3 in
+`AGS/var/cortex/artifacts/pilot2/defects.md`): property steps used to
+persist their JSON results under the home jobs tree, which the default
+ComputerUse sandbox does not mount, so from inside that sandbox
+property-step JSON outputs were machine-readable but machine-unreachable.
+
+SUPERSEDED 2026-09-14 by the placement rule (see "Job placement" in
+Entities.md, validated in
+`research/impl-step9-current-placement-validation.md`): entity modules
+now root their jobs at `:current` — the workflow checkout tree
+(`./var/jobs/...`) — and the checkout is mounted in the execution
+sandbox, so result files are readable from scripts (probe: all checkout
+var/jobs paths readable; the home jobs tree is not). The old mitigations
+still work and remain relevant only for result files that pre-date the
+change or that replay at an existing old root (first-existing-wins):
 
 - mount the jobs path into the sandbox (exec task `read_paths`), or
 - read the receipt through a property: the `receipts` argument of

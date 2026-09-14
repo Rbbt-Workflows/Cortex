@@ -67,7 +67,8 @@ Rules of thumb:
 ### Property vocabulary (one line each)
 
 - **entity type** — an anonymous Workflow module named exactly `<Type>`;
-  its results live under `var/jobs/<Type>/`.
+  its results live under `var/jobs/<Type>/`, rooted at the `:current`
+  map (the checkout tree) by `entity_new_module`'s annotation.
 - **entity** — a plain String id; the readable prefix of a result
   address.
 - **property** — a named, versioned, executable transformation of an
@@ -272,6 +273,16 @@ The receipt (section 2.7) is `{entity_type, property, receiver,
 arguments, definition:{version,digest}, address, result_kind, status,
 value (bounded), materialized:{path,bytes}, info_path}` — every field
 mechanically derived from the produced Step or the call inputs.
+
+Placement: entity modules root their jobs at the `:current` map, so
+`materialized.path` lands under the workflow checkout (`./var/jobs/...`)
+rather than `~/.scout/var/jobs` — the checkout tree is mounted in the
+execution sandbox, so result files are readable from scripts (the
+motivation for the rule). Caveat: `Path#find` is first-existing-wins, so
+labels whose old-root directories already exist (pre-change evidence,
+e.g. foreign types) keep replaying at the old root; both roots resolve
+through `cortex_result`, whose resolution is root-independent. Validation
+and receipts: `research/impl-step9-current-placement-validation.md`.
 
 ## `cortex_result`  -  resolve an address (never executes)
 

@@ -59,7 +59,51 @@ ext:       .tsv | .json | .yaml | .marshal           # TYPE_EXTENSIONS
   upstream evidence yield different downstream addresses.
 - `<Type>` modules set no directory of their own; their `directory`
   falls back to `Workflow.directory[<Type>]` (Scout's default jobs
-  root), so the result tree is the engine's own tree.
+  root), so the result tree is the engine's own tree — with one
+  deliberate placement annotation, see "Job placement" below.
+
+## Job placement (`:default => :current`)
+
+Every entity module built by `Cortex.entity_new_module`
+(lib/Cortex/entities.rb) is annotated
+`mod.directory.path_maps[:default] = :current`, so property results
+root at the `:current` map — the workflow checkout (`./var/jobs/...`,
+the process PWD under exec/bwrap execution) rather than
+`~/.scout/var/jobs`. Motivation: the checkout tree is mounted in the
+ComputerUse execution sandbox; the home tree is not, so before the
+change agents could not read result files from scripts.
+
+Mechanics (all engine-owned, validated in
+`research/impl-step9-current-placement-validation.md`):
+
+- The annotation runs on EVERY module build (`Types.for`,
+  `resolve_entity_module`, `load_entity_type`, `entity_stage_compile`);
+  there is no newness gate. `Workflow#directory` memoizes
+  (`@directory ||= Workflow.directory[name]`, scout-gear
+  definition.rb:63-66), so it persists across accesses and propagates
+  by shared-Hash reference to task directories joined afterwards.
+- It decides placement exactly when NO `var/jobs/<Type>/...` candidate
+  exists anywhere in map order: `Task#job` resolves through
+  `path.find` (scout-gear workflow/task.rb:134-138) and `Path#find` is
+  FIRST-EXISTING-WINS across map order
+  (scout-essentials path/find.rb:265-271), falling back to
+  `follow(:default)` only when nothing exists (find.rb:273).
+- Consequence (split evidence): labels whose old-root directories
+  already exist — e.g. foreign types with pre-change evidence under
+  `~/.scout` — keep replaying at the old root (first-existing-wins).
+  Same definition, two roots; both resolve through `cortex_result`,
+  which is root-independent.
+- Known defect D1 (reported, not fixed): the annotation mutates the
+  `@path_maps` Hash shared by reference with `Workflow.directory`, so
+  any OTHER workflow module whose directory Path is computed after an
+  entity build in the same process defaults to `{PWD}/var/jobs` instead
+  of `~/.scout/var/jobs`. Smallest fix: annotate a private copy
+  (duplicate the hash before setting `[:default]`). Evidence:
+  `tmp/placement-step2.out` probes b1/b2/b3.
+- Guard test: `test/Cortex/test_placement_default.rb` (4 tests, 14
+  assertions) pins the annotation, real-run placement under the scratch
+  `:current` root, the `follow(:default)` fallback, and the
+  first-existing-wins boundary.
 
 ## Definition store (unchanged locations, one rename)
 
@@ -244,6 +288,15 @@ and no sandboxing is claimed. Same trust boundary as any workflow task.
   `test_registry_retirement.rb` (no-write guard, activity rewiring,
   migration, address purity), `test_property_history.rb` (definition
   store + legacy reads), `test_worked_example.rb` (the §10 walkthrough).
+- Placement guard: `test_placement_default.rb` (annotation + real-run
+  rooting under the scratch `:current` root, `follow(:default)`
+  fallback, first-existing-wins boundary).
+- Suite-runner fact: the `SUITE:` line counts only
+  `test/test_cortex_workspace.rb` own checks — the aggregate loads
+  every file, but that file calls `exit` at load time, before Test::Unit
+  autorun, so the Test::Unit test methods (all `test/Cortex/test_*.rb`
+  suites, including the placement guard) run only via their standalone
+  invocation (`BWRAP=false ruby -Itest -Ilib test/Cortex/<file>.rb`).
 
 ## Known limitations
 

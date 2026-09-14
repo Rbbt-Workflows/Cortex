@@ -12,6 +12,8 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
   timeout
 
   arguments
+
+  memoization
  }
  lib=lib {
   Cortex=Cortex{
