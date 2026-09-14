@@ -22,7 +22,8 @@ options = SOPT.setup <<~EOF
   -b--body* Candidate Ruby body; omit to validate the ACTIVE definition
   -d--description* Candidate description (documentation only)
   -pr--property_type* Property arity: single entity, entity list, or both
-  -r--result_type* Scout result type (string, integer, float, array, tsv, json...)
+  -r--result_kind* Declared result kind (string, integer, float, array, tsv, json...)
+  -re--result_type* DEPRECATED alias of result_kind (accepted indefinitely, reported loudly)
   -a--arguments* Argument specs in JSON [{name,type,description,required,default}]
   -de--dependencies* Same-entity property names this property depends on
   -t--test_entity* Entity identifier for an optional smoke execution

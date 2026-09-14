@@ -34,6 +34,10 @@ class TestCortexActivity < Test::Unit::TestCase
         FileUtils.rm_rf(File.join(root, 'var', 'cortex', sub))
       end
       FileUtils.rm_rf(File.join(root, 'var', 'jobs', 'Cortex'))
+      # Step evidence (var/jobs/<Type>) is the CURRENT source of
+      # investigations facts (design §4): purge the fixture type's tree so
+      # each test sees exactly its own runs.
+      FileUtils.rm_rf(File.join(root, 'var', 'jobs', ACT_TYPE))
     end
     Cortex.managed_entity_registry.clear if Cortex.respond_to?(:managed_entity_registry)
 
@@ -99,13 +103,13 @@ class TestCortexActivity < Test::Unit::TestCase
     assert expr['active']
 
     inv = section(r, 'investigations')['items']
-    assert_equal 2, inv.length
     by_prop = inv.group_by { |i| i['property'] }
-    assert_equal 1, by_prop['expr'].first['runs']
-    assert_equal 1, by_prop['len'].first['runs']
+    assert_equal 1, by_prop['expr'].length, 'one materialized address per run'
+    assert_equal 1, by_prop['len'].length
+    assert_equal 'step_info', by_prop['expr'].first['source']
     assert_equal({ 'scale' => 1 }, by_prop['len'].first['arguments'])
-    assert_match(%r{ProbeAct/len/FOXO1}, by_prop['len'].first['property_job'])
-    assert by_prop['expr'].first['property_job'], 'job reference present'
+    assert by_prop['len'].first['address'].start_with?('ProbeAct/len/FOXO1_')
+    assert by_prop['expr'].first['address'], 'address reference present'
     assert !by_prop['expr'].first.key?('result'), 'no result payload'
 
     lists = section(r, 'lists')['items']
@@ -118,14 +122,20 @@ class TestCortexActivity < Test::Unit::TestCase
            mentions.inspect
   end
 
-  def test_list_member_investigations_are_aggregated_for_the_entity
-    # A list run records one examination per member under the list
-    # receiver; the investigations facet must surface it for each member.
+  def test_fanout_member_evidence_is_scoped_to_the_entity
+    # Step-derived evidence is content-addressed: the direct run and the
+    # fan-out member run of the SAME (receiver, arguments, definition) land
+    # on ONE address - the second is a cache hit, not a second record.  The
+    # facet lists that address for FOXO1 and never leaks MYC's evidence.
     run_prop(ACT_TYPE, 'expr', %w[FOXO1 MYC])
     inv = section(report, 'investigations')['items']
-    foxo1 = inv.select { |i| i['property'] == 'expr' }
-    assert_equal 2, foxo1.collect { |i| i['runs'] }.inject(:+),
-                 'direct run + list-member run both counted'
+    expr = inv.select { |i| i['property'] == 'expr' }
+    assert(expr.all? { |i| i['address'].to_s.start_with?('ProbeAct/expr/FOXO1_') },
+           expr.inspect)
+    assert(expr.none? { |i| i['address'].to_s.include?('/MYC_') },
+           "MYC evidence must not leak into FOXO1's facet")
+    assert expr.first['step_status'] == 'done'
+    assert expr.first['definition_version'] == '1'
   end
 
   def test_no_result_payloads_leak
@@ -188,9 +198,9 @@ class TestCortexActivity < Test::Unit::TestCase
     Cortex.remove_property(ACT_TYPE, 'expr', expected_version: 1,
                            agent: 't', job: 't')
     item = section(report, 'investigations')['items'].find { |i| i['property'] == 'expr' }
-    assert item, 'the historical investigation record is kept, never deleted'
+    assert item, 'the materialized evidence is kept, never deleted'
     assert_equal 'removed', item['status']
-    assert_match(%r{ProbeAct/expr/FOXO1}, item['property_job'])
+    assert_match(%r{ProbeAct/expr/FOXO1}, item['address'])
   end
 
   def test_investigations_mark_older_definitions
@@ -198,9 +208,12 @@ class TestCortexActivity < Test::Unit::TestCase
     Cortex.update_property(ACT_TYPE, 'expr', expected_version: 1,
                            body: "'CHANGED'", result_type: 'string',
                            agent: 't', job: 't')
-    item = section(report, 'investigations')['items'].find { |i| i['property'] == 'expr' }
-    assert_equal 'older', item['status'], 'a newer active version is current'
-    assert_equal '1', item['definition_version'],
+    items = section(report, 'investigations')['items']
+                          .select { |i| i['property'] == 'expr' }
+    assert items.any? { |i| i['status'] == 'older' },
+           'evidence from v1 is marked older once v2 is active'
+    v1 = items.find { |i| i['status'] == 'older' }
+    assert_equal '1', v1['definition_version'].to_s,
                  'the recorded version identifies the code that produced the evidence'
   end
 

@@ -24,7 +24,8 @@ the removal either.
   untouched.
 - **Why not implemented**: the registry deliberately records history, not
   state; wiping per-member records on list change would erase the record of
-  the examinations that did happen. Distinguishing "was examined" from "is a
+  the investigations that did happen (legacy registry `examinations`; current
+evidence is the var/jobs Step tree). Distinguishing "was examined" from "is a
   current member" needs an explicit membership timestamp in the record.
 - **Candidate fix**: store the member set (or a digest of it) in the
   list-receiver record on each run, and let listings/activity mark
@@ -54,10 +55,10 @@ Deliberate scope decisions, kept here so they are not re-litigated:
 
 Planned progression beyond the deterministic v1 facets:
 
-- Relationship facet: co-occurring entities across lists and examination
+- Relationship facet: co-occurring entities across lists and investigation
   records (MYC/FOXO3 next to TP53).
 - Selected-results facet: small representative excerpts from high-value
-  examinations, keeping result payloads out of the report by default.
+  investigations, keeping result payloads out of the report by default.
 - Preferential sampling (recent investigations, under-explored properties,
   recently modified artifacts) as a SEPARATE stochastic operation, never
   inside `cortex_activity` itself.

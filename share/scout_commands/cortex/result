@@ -1,0 +1,43 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# scout cortex result -- Resolve a materialized result address; value, info, or path projection (design 2.4)
+
+require 'scout'
+
+require_relative '../../../lib/Cortex/cli'
+
+$0 = "scout #{$previous_commands.any? ? "#{$previous_commands * ' '} " : ''}#{File.basename(__FILE__)}" if $previous_commands
+cmd = $0
+
+options = SOPT.setup <<~EOF
+
+  Resolve a materialized result address; value, info, or path projection (design 2.4)
+
+  $ #{cmd} [<options>] <address>
+
+  -h--help Print this help
+  -a--address* Address of a materialized result: <Type>/<property>/<label> short_path, a var/jobs-prefixed path, or a full filesystem path
+  -p--projection* What to return of the SAME resolved Step: value (bounded payload), info (full .info sidecar), or path (the PATH STRING, not the bytes)
+  -m--max_bytes* Bounding for the value projection
+EOF
+if options[:help]
+  if defined? scout_usage
+    scout_usage
+  else
+    puts SOPT.doc
+  end
+  exit 0
+end
+
+address = IndiferentHash.process_options options, :address
+
+address = ARGV.shift if address.nil?
+
+raise MissingParameterException, :address if address.nil?
+
+options[:address] = address
+
+raise ParameterException, "Extra positional arguments: #{ARGV * ' '}" unless ARGV.empty?
+
+Cortex::CLI.dispatch 'cortex_result', options

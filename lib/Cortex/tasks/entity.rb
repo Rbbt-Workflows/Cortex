@@ -9,17 +9,17 @@ require 'Cortex/entities'
 # (Cortex.* module functions in lib/Cortex/entities.rb); no validation or
 # storage logic lives here.
 #
-# Surface policy: this file is ADD-ONLY.  The eight tasks below are new
-# exports; the existing 12 exports and the frozen receipt contract of
-# cortex_continue/cortex_brief are untouched.  The old demonstrator task
-# `entity_property` (whose `entity_type` input actually meant entity JSON
-# OPTIONS) is deleted rather than aliased: its input contract does not map
-# onto cortex_entity_property, so a "compatibility" alias would silently
-# reinterpret its inputs.  Use cortex_entity_property instead.
+# Surface policy (redesign steps 4-5): cortex_property_run (§2.3) and
+# cortex_result (§2.4) are the run/resolve surface and NO code path writes
+# var/cortex/properties (the old run engine and its task alias are gone;
+# legacy records are read-only history).  cortex_property_validate follows
+# §2.2 (throwaway scratch module; smoke always clean:true in a fresh scratch
+# directory; never mutates the store).  define/update take result_kind
+# (result_type still accepted, loudly).
 #
-# entity input convention (cortex_entity_property): `entity` is a :string.
+# entity input convention (cortex_property_run): `entity` is a :string.
 # A JSON array string (e.g. "[\"TP53\",\"KRAS\"]") is parsed into an entity
-# list, anything else is a single entity identifier.
+# list (fan-out for :single), anything else is a single entity identifier.
 module Cortex
 
   # ------------------------------------------------------------------
@@ -42,7 +42,7 @@ module Cortex
         meta   = d[:meta]
         active = meta['active'] ? 'active' : 'inactive'
         "  #{meta['entity_type']}/#{meta['property']}\t#{d[:map]}\t#{meta['version']}\t" \
-          "#{meta['digest'][0, 8]}\t#{meta['property_type']}\t#{meta['result_type']}\t" \
+          "#{meta['digest'][0, 8]}\t#{meta['property_type']}\t#{meta['result_kind'] || meta['result_type']}\t" \
           "#{Array(meta['arguments']).length} args\t#{Array(meta['dependencies']).length} deps\t#{active}"
       end
       sections << [type, rows]
@@ -53,7 +53,7 @@ module Cortex
              (prefix ? " (prefix #{prefix})" : '') +
              (include_inactive ? ' (including inactive)' : '')
     text = [header] + sections.collect do |type, rows|
-      ["#{type}", "#type/property\tmap\tversion\tdigest\tproperty_type\tresult_type\targs\tdeps\tstatus", *rows]
+      ["#{type}", "#type/property\tmap\tversion\tdigest\tproperty_type\tresult_kind\targs\tdeps\tstatus", *rows]
     end
     next_offset = offset.to_i + page.length
     text << ["# next: #{next_offset}"] if next_offset < total
@@ -80,7 +80,7 @@ module Cortex
     end
     deps = Array(meta['dependencies'])
     iface = [
-      "# #{entity_type}/#{property} v#{meta['version']} (#{meta['property_type']} -> #{meta['result_type']})",
+      "# #{entity_type}/#{property} v#{meta['version']} (#{meta['property_type']} -> #{meta['result_kind'] || meta['result_type']})",
       "# digest #{meta['digest']}" + (meta['active'] ? ' active' : " INACTIVE (removed at v#{meta['removed_version']})"),
       meta['description'].to_s.empty? ? nil : "# #{meta['description']}",
       args.empty? ? nil : "# arguments:\n#{args * "\n"}",
@@ -124,7 +124,8 @@ module Cortex
   end
 
   # ------------------------------------------------------------------
-  # Validate: schema + graph + staging compile + optional smoke; no activation
+  # Validate: design §2.2 — compile in a throwaway scratch module; smoke with
+  # clean:true in a scratch directory (never cached, never mutating).
   # ------------------------------------------------------------------
 
   input :entity_type, :string, 'Entity type of the property (e.g. Gene)', nil, required: true, jobname: true
@@ -132,17 +133,26 @@ module Cortex
   input :body, :string, 'Candidate Ruby body; omit to validate the ACTIVE definition', nil
   input :description, :string, 'Candidate description (documentation only)', nil
   input :property_type, :select, 'Property arity: single entity, entity list, or both', nil, select_options: %w(single array both)
-  input :result_type, :string, 'Scout result type (string, integer, float, array, tsv, json...)', 'text'
-  input :arguments, :text, 'Argument specs in JSON [{name,type,description,required,default}]', []
+  input :result_kind, :string, 'Declared result kind (string, integer, float, array, tsv, json...)', nil
+  input :result_type, :string, 'DEPRECATED alias of result_kind (accepted indefinitely, reported loudly)', nil
+  input :arguments, :text, 'Argument specs in JSON [{name,type,description,required,default}]', [], nofile: true
   input :dependencies, :array, 'Same-entity property names this property depends on', []
   input :test_entity, :string, 'Entity identifier for an optional smoke execution', nil
-  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}
+  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}, nofile: true
   task :cortex_property_validate => :json do |entity_type, property, body, description,
-                                              property_type, result_type, arguments,
-                                              dependencies, test_entity, test_arguments|
+                                              property_type, result_kind, result_type,
+                                              arguments, dependencies, test_entity, test_arguments|
+    # result_type -> result_kind rename, recognized loudly (§9)
+    warnings = []
+    unless result_type.to_s.strip.empty?
+      result_kind = result_type
+      warnings << "Input 'result_type' is deprecated; use 'result_kind' " \
+                  "(value #{result_type.inspect} accepted)"
+    end
+
     checks = []
     errors = []
-    smoke  = nil
+    smoke  = :not_requested
 
     arguments = parse_json arguments, :arguments
     test_arguments = parse_json test_arguments, :test_arguments
@@ -155,14 +165,12 @@ module Cortex
     end
 
     target_body = body || (active && active['body'])
-    if target_body.nil?
-      errors << 'body: no candidate body supplied and no active definition to validate'
-    end
+    errors << 'body: no candidate body supplied and no active definition to validate' if target_body.nil?
 
     # --- schema checks -----------------------------------------------
     begin
       pt = Cortex.entity_property_type!(property_type || (active && active['property_type']) || 'single')
-      rt = Cortex.entity_result_type!(result_type || (active && active['result_type']) || 'text')
+      rt = Cortex.entity_result_type!(result_kind || (active && active['result_kind']) || (active && active['result_type']) || 'text')
       args = Cortex.entity_arguments!(arguments || (active && active['arguments']) || [])
       deps = Cortex.entity_dependencies!(dependencies || (active && active['dependencies']) || [])
       checks << 'schema: names, types, arguments, dependencies'
@@ -181,7 +189,7 @@ module Cortex
       end
     end
 
-    # --- staging compile ----------------------------------------------
+    # --- staging compile in a THROWAWAY scratch module (§2.2) ----------
     if pt && target_body
       begin
         digest = Cortex.entity_definition_digest(body: target_body, property_type: pt,
@@ -192,45 +200,120 @@ module Cortex
                                     arguments: args, dependencies: deps,
                                     version: (active && active['version'] || 1).to_i,
                                     digest: digest)
-        checks << 'compile: envelope compiled in staging module'
+        checks << 'compile: envelope compiled in throwaway scratch module'
       rescue ScoutException => e
         errors << "compile: #{e.message}"
       end
     end
 
-    # --- optional smoke execution --------------------------------------
+    # --- optional smoke: ALWAYS clean:true (never cached), §2.2 ---------
+    # The smoke Step's path is derived, cleaned, then run: no code path can
+    # serve a previous run's .info.  EntityPropertyTimeout is an Exception
+    # (not StandardError) and is routed explicitly.
+    smoke_job = nil
     if errors.empty? && test_entity
       begin
-        mod    = Cortex.entity_stage_compile(entity_type, property, body: target_body,
-                                             property_type: pt, result_type: rt,
-                                             arguments: args, dependencies: deps,
-                                             version: 1, digest: 'smoke')
-        entity = mod.setup test_entity
-        job    = entity.send "#{property}_job", (test_arguments || {})
-        # Bound the candidate execution like a real run: a hanging body
-        # must not wedge the validate task.  EntityPropertyTimeout is an
-        # Exception (not StandardError), so route it into the errors list
-        # explicitly.
-        Cortex.entity_property_with_timeout(Cortex.entity_property_timeout(nil)) do
-          job.run
-          result = job.load
+        # §2.2 + dependency support: a candidate WITH dependencies must be
+        # staged together with its upstream properties, or the dep block's
+        # mod.job(:dep, ...) hits a nil task (recursive_inputs on nil).  The
+        # staging module is therefore built from the ACTIVE manifest of the
+        # type, with the candidate property substituted; the upstream tasks
+        # are the same compiled code a real run would use.
+        staging_manifest = Cortex.entity_manifest(entity_type).reject do |d|
+          d[:property] == property
         end
-        smoke  = { job: job.short_path, result: result }
-        # The smoke job is a throwaway artifact of validation, not evidence;
-        # drop it so var/jobs only keeps real property jobs.
-        job.clean
-        checks << 'smoke: executed candidate, job cleaned'
+        identities = {}
+        staging_manifest.each do |d|
+          m = d[:meta] || {}
+          identities[d[:property].to_sym] = {
+            _cortex_definition: entity_type + '/' + d[:property],
+            _cortex_definition_version: m['version'].to_i,
+            _cortex_definition_digest: m['digest']
+          }
+        end
+        smoke_mod = Cortex::Types.for(entity_type)
+        staging_manifest.sort_by { |d| Array((d[:meta] || {})['dependencies']).length }
+                        .each do |d|
+          Cortex.entity_compile_property!(smoke_mod, d, identities)
+        end
+        candidate = {
+          type: entity_type, property: property, body: target_body,
+          body_path: "staged:#{entity_type}/#{property}.rb",
+          meta: { 'entity_type' => entity_type, 'property' => property,
+                  'property_type' => pt, 'result_type' => rt,
+                  'arguments' => args, 'dependencies' => deps,
+                  'version' => 1, 'digest' => 'smoke' }
+        }
+        identities[property.to_sym] = {
+          _cortex_definition: entity_type + '/' + property,
+          _cortex_definition_version: 1,
+          _cortex_definition_digest: 'smoke'
+        }
+        Cortex.entity_compile_property!(smoke_mod, candidate, identities)
+        # §2.2: the smoke runs in a THROWAWAY scratch directory, not in the
+        # var/jobs evidence tree.  A unique directory per call also makes a
+        # cached .info structurally impossible (fresh path -> fresh Step).
+        scratch_root = Path.setup(File.join(Scout.tmp.find, 'cortex_validate_smoke',
+                                            "#{Process.pid}_#{Time.now.to_f}"))
+        smoke_mod.directory = scratch_root
+        smoke_entity = smoke_mod.setup test_entity
+        smoke_job    = smoke_entity.send "#{property}_job", (test_arguments || {})
+        smoke_job.clean
+        smoke_address = nil
+        Cortex.entity_property_with_timeout(Cortex.entity_property_timeout(nil)) do
+          smoke_job.run
+          loaded = smoke_job.load
+          smoke_address = smoke_job.short_path
+          # Kind check (§2.6 F4-(iii)): declared kind vs loaded class.
+          expected = case rt.to_s
+                     when 'string', 'text'   then String
+                     when 'integer', 'float' then Numeric
+                     when 'array'            then Array
+                     else nil
+                     end
+          if expected && !loaded.is_a?(expected)
+            errors << "kind: declared result_kind #{rt.inspect} but the smoke " \
+                      "loaded #{loaded.class} (#{loaded.inspect[0, 60]})"
+          else
+            checks << 'kind: smoke loaded the declared result kind'
+          end
+        end
+        smoke = { status: :done, address: smoke_address,
+                  scratch_root: scratch_root.find.to_s }
+        checks << 'smoke: executed candidate in a throwaway scratch root (never cached)'
       rescue Cortex::EntityPropertyTimeout => e
+        smoke = { status: :error,
+                  address: (smoke_job.short_path rescue nil),
+                  scratch_root: (scratch_root.find.to_s rescue nil),
+                  exception_class: e.class.name,
+                  exception_message: e.message,
+                  verdict: Cortex::Error.verdict_of(e) }
         errors << "smoke: #{e.class}: #{e.message}"
-        job.clean if job && job.respond_to?(:clean)
-      rescue StandardError => e
-        errors << "smoke: #{e.class}: #{e.message}"
+        smoke_job.clean if smoke_job.respond_to?(:clean)
+      rescue Exception => e # rubocop:disable Lint/RescueException
+        envelope = Cortex::Error.envelope(e, context: { phase: 'validate_smoke',
+                                                        entity_type: entity_type,
+                                                        property: property,
+                                                        test_entity: test_entity })
+        smoke = { status: :error,
+                  address: (smoke_job.short_path rescue nil),
+                  scratch_root: (scratch_root.find.to_s rescue nil),
+                  exception_class: envelope[:exception_class],
+                  exception_message: envelope[:exception_message],
+                  message_is_bare: envelope[:message_is_bare],
+                  verdict: envelope[:verdict] }
+        errors << 'smoke: ' + (envelope[:message_is_bare] ?
+                                 "#{envelope[:exception_class]} (BARE raise - " \
+                                 'add an explanatory message)' :
+                                 envelope[:exception_message])
+        smoke_job.clean if smoke_job.respond_to?(:clean)
       end
     end
-    checks << 'smoke: skipped (no test_entity)' if smoke.nil? && errors.empty? && !test_entity
 
-    { valid: errors.empty?, address: "#{entity_type}/#{property}",
-      checks: checks, errors: errors, smoke: smoke }
+    out = { valid: errors.empty?, address: "#{entity_type}/#{property}",
+            checks: checks, errors: errors, smoke: smoke }
+    out[:warnings] = warnings unless warnings.empty?
+    out
   end
 
   # ------------------------------------------------------------------
@@ -242,25 +325,39 @@ module Cortex
   input :body, :string, 'Ruby body; the entity is the receiver, arguments are locals', nil, required: true
   input :description, :string, 'Human-readable description (documentation only)', ''
   input :property_type, :select, 'Property arity: single entity, entity list, or both', 'single', select_options: %w(single array both)
-  input :result_type, :string, 'Scout result type (string, integer, float, array, tsv, json...)', 'text'
-  input :arguments, :text, 'Argument specs in JSON [{name,type,description,required,default}]', []
+  input :result_kind, :string, 'Declared result kind (string, integer, float, array, tsv, json...)', 'text'
+  input :result_type, :string, 'DEPRECATED alias of result_kind (accepted indefinitely, reported loudly)', nil
+  input :arguments, :text, 'Argument specs in JSON [{name,type,description,required,default}]', [], nofile: true
   input :dependencies, :array, 'Same-entity property names this property depends on', []
   input :test_entity, :string, 'Entity identifier for a pre-activation smoke execution', nil
-  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}
+  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}, nofile: true
   input :agent, :string, 'Agent name recorded in provenance', 'Cortex'
   task :cortex_property_define => :json do |entity_type, property, body, description,
-                                            property_type, result_type, arguments,
-                                            dependencies, test_entity, test_arguments, agent|
+                                            property_type, result_kind, result_type,
+                                            arguments, dependencies, test_entity, test_arguments, agent|
+    warnings = []
+    unless result_type.to_s.strip.empty?
+      result_kind = result_type
+      warnings << "Input 'result_type' is deprecated; use 'result_kind' " \
+                  "(value #{result_type.inspect} accepted)"
+    end
 
     arguments = parse_json arguments, :arguments
     test_arguments = parse_json test_arguments, :test_arguments
 
     res = Cortex.define_property(entity_type, property, body: body, description: description,
-                                property_type: property_type, result_type: result_type,
+                                property_type: property_type, result_type: result_kind,
                                 arguments: arguments, dependencies: dependencies,
                                 agent: agent, job: self.short_path,
                                 test_entity: test_entity, test_arguments: test_arguments)
-    res.merge defined: true
+    # The store returns {address, version, digest}; the §2.1 receipt adds
+    # property_type and result_kind (result_type recognized on read, §9).
+    res[:property_type] = property_type if property_type
+    res[:result_kind] = result_kind
+    res[:definition_path] = "entities/#{entity_type}/#{property}"
+    res = res.merge defined: true
+    res[:warnings] = warnings unless warnings.empty?
+    res
   end
 
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
@@ -269,16 +366,23 @@ module Cortex
   input :body, :string, 'New Ruby body; omit to keep the current one', nil
   input :description, :string, 'New description; omit to keep the current one', nil
   input :property_type, :select, 'Property arity: single, array, or both; omit to keep the current one', nil, select_options: %w(single array both)
-  input :result_type, :string, 'Scout result type; omit to keep the current one', nil
-  input :arguments, :text, 'Argument specs in JSON; omit to keep the current ones', nil
+  input :result_kind, :string, 'Declared result kind; omit to keep the current one', nil
+  input :result_type, :string, 'DEPRECATED alias of result_kind (accepted indefinitely, reported loudly)', nil
+  input :arguments, :text, 'Argument specs in JSON; omit to keep the current ones', nil, nofile: true
   input :dependencies, :array, 'Same-entity property names; omit to keep the current ones', nil
   input :test_entity, :string, 'Entity identifier for a pre-activation smoke execution', nil
-  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}
+  input :test_arguments, :text, 'Arguments for the smoke execution (JSON object)', {}, nofile: true
   input :agent, :string, 'Agent name recorded in provenance', 'Cortex'
   task :cortex_property_update => :json do |entity_type, property, expected_version, body,
-                                            description, property_type, result_type,
-                                            arguments, dependencies, test_entity,
+                                            description, property_type, result_kind,
+                                            result_type, arguments, dependencies, test_entity,
                                             test_arguments, agent|
+    warnings = []
+    unless result_type.to_s.strip.empty?
+      result_kind = result_type
+      warnings << "Input 'result_type' is deprecated; use 'result_kind' " \
+                  "(value #{result_type.inspect} accepted)"
+    end
 
     arguments = parse_json arguments, :arguments
 
@@ -286,11 +390,23 @@ module Cortex
 
     res = Cortex.update_property(entity_type, property, expected_version: expected_version,
                                  body: body, description: description,
-                                 property_type: property_type, result_type: result_type,
+                                 property_type: property_type, result_type: result_kind,
                                  arguments: arguments, dependencies: dependencies,
                                  agent: agent, job: self.short_path,
                                  test_entity: test_entity, test_arguments: test_arguments)
-    res.merge updated: true
+    # §2.1 receipt; result_kind reflects the post-update definition (the
+    # caller-supplied value when given, else the previous one).
+    res[:result_kind] = result_kind ||
+                        (begin
+                          Cortex.property_definition(entity_type, property)['result_kind'] ||
+                          Cortex.property_definition(entity_type, property)['result_type']
+                        rescue StandardError
+                          nil
+                        end)
+    res[:definition_path] = "entities/#{entity_type}/#{property}"
+    res = res.merge updated: true
+    res[:warnings] = warnings unless warnings.empty?
+    res
   end
 
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
@@ -305,106 +421,122 @@ module Cortex
   end
 
   # ------------------------------------------------------------------
-  # Execution: run an active property for a concrete entity or entity list
+  # Execution (design §2.3): cortex_property_run is the run surface (the
+  # historical cortex_entity_property task was retired with the registry).
   # ------------------------------------------------------------------
 
   input :entity_type, :string, 'Entity type (Ruby constant path, e.g. Gene)', nil, required: true, jobname: true
   input :property, :string, 'Property name', nil, required: true
-  input :list, :string, 'Named entity list to run the property on, as <entity_type>/<list> (e.g. TF/C01); must already exist (create with cortex_write_list, discover with cortex_list type=lists). Preferred over entity for any multi-entity work', nil
-  input :entity, :string, 'A single entity identifier (for multiple entities define a named list and use the list input instead)', nil
-  input :arguments, :text, 'Property arguments (JSON object, never positional)', {}
-  input :entity_options, :text, 'Entity annotation options (JSON object)', nil
-  input :update, :boolean, 'Clean the property job and recompute it', false
-  input :timeout, :integer, 'Execution timeout in seconds for this run; omit to use the configured default (config key timeout, tokens entity_property/cortex; env CORTEX_ENTITY_PROPERTY_TIMEOUT; default 3600). Set 0, "false" or "none" to run unbounded', nil
-  task :cortex_entity_property => :json do |entity_type, property, list, entity, arguments,
-                                          entity_options, update, timeout|
+  input :entity, :string, 'Entity id (single receiver; never together with list). An inline JSON array is accepted and fans out', nil
+  input :list, :string, 'Named list <entity_type>/<list> (never together with entity)', nil
+  input :arguments, :text, 'Property arguments (JSON object, never positional)', {}, nofile: true
+  input :entity_options, :text, 'Entity annotation options (JSON object)', nil, nofile: true
+  input :update, :boolean, 'Clean the property job(s) and recompute', false
+  input :timeout, :integer, 'Execution timeout in seconds; omit to use the configured default (config key timeout, tokens entity_property/cortex; env CORTEX_ENTITY_PROPERTY_TIMEOUT; default 3600). 0/false/none = unbounded', nil
+  input :agent, :string, 'Agent name recorded in provenance', 'Cortex'
+  task :cortex_property_run => :json do |entity_type, property, entity, list, arguments,
+                                         entity_options, update, timeout, agent|
     raise ScoutException,
-          "Provide either entity or list, not both" if !entity.to_s.strip.empty? && !list.to_s.strip.empty?
+          'Provide either entity or list, not both' if !entity.to_s.strip.empty? && !list.to_s.strip.empty?
     raise ScoutException,
-          "Provide an entity identifier or a named list (entity or list)" if entity.to_s.strip.empty? && list.to_s.strip.empty?
-
-    # `entity` is a string input: parse JSON array payloads into entity lists,
-    # keep everything else as a single identifier.
-    if entity && !entity.to_s.strip.empty?
-      begin
-        parsed = parse_json entity, :entity
-        entity = parsed if Array === parsed
-      rescue
-      end
-    end
+          'Provide an entity identifier or a named list (entity or list)' if entity.to_s.strip.empty? && list.to_s.strip.empty?
 
     arguments = parse_json arguments, :arguments
     entity_options = parse_json entity_options, :entity_options
-    entity_options = IndiferentHash.setup(entity_options) if Hash === entity_options
 
-    # Resolve the named list BEFORE running: the receiver becomes the list
-    # content, and the receipt/registry can reference the list by name.  The
-    # list sidecar may contribute entity_options; the explicit input wins.
-    list_name = nil
-    if list.to_s.strip.size > 0
-      list_type, list_id = list.split(File::SEPARATOR, 2)
-      raise ScoutException, "Invalid list reference #{list.inspect}: expected <entity_type>/<list>" if list_id.nil? || list_id.empty?
-      raise ScoutException, "List #{list.inspect} is not a #{entity_type} list" if list_type != entity_type
-      entities, _meta, _path, _map, _maps = Cortex.read_list list_type, list_id
-      raise ScoutException, "Entity list #{list.inspect} is empty" if entities.empty?
-      entity = entities
-      list_name = list_id
-      list_opts = Cortex.list_entity_options(list_type, list_id)
-      if list_opts && list_opts.any?
-        merged = IndiferentHash.setup(list_opts.dup)
-        merged.merge!(entity_options || {})
-        entity_options = merged
+    receiver = if list.to_s.strip.size > 0
+                 { list: list.to_s }
+               else
+                 parsed = begin
+                   parse_json entity, :entity
+                 rescue StandardError
+                   nil
+                 end
+                 Array === parsed ? parsed : entity.to_s
+               end
+
+    out = begin
+      Cortex::Properties.run_property(entity_type: entity_type, property: property,
+                                      receiver: receiver, arguments: arguments || {},
+                                      update: update, timeout: timeout,
+                                      entity_options: entity_options, agent: agent)
+    rescue Cortex::EntityPropertyTimeout
+      raise ScoutException, $!.message
+    end
+
+    # Receipts are plain Hashes; strip the transient :step key so the JSON
+    # payload is exactly the §2.7 envelope (+ §2.6 error envelopes inside).
+    strip = ->(r) { r.reject { |k, _| k == :step } }
+    Array === out ? out.collect { |r| strip.call(r) } : strip.call(out)
+  end
+
+  # ------------------------------------------------------------------
+  # Resolution (design §2.4): the Step triple as one addressable object.
+  # ------------------------------------------------------------------
+
+  input :address, :string, 'Address of a materialized result: <Type>/<property>/<label> short_path, a var/jobs-prefixed path, or a full filesystem path', nil, required: true, jobname: true
+  input :projection, :select, 'What to return of the SAME resolved Step: value (bounded payload), info (full .info sidecar), or path (the PATH STRING, not the bytes)', 'value', select_options: %w(value info path)
+  input :max_bytes, :integer, 'Bounding for the value projection', 5000
+  task :cortex_result => :json do |address, projection, max_bytes|
+    resolution = begin
+      Cortex::Properties.resolve_address(address)
+    rescue ParameterException => e
+      # The §2.6 envelope is embedded in the message as JSON; re-raise as a
+      # ScoutException so the task error text IS the envelope.
+      raise ScoutException, e.message
+    end
+    step = resolution[:step]
+    raise ScoutException, "Address #{address.inspect} did not resolve to a Step" if step.nil?
+
+    kind = begin
+      info = step.info
+      (step.respond_to?(:type) && step.type ? step.type : info[:type]).to_s
+    rescue StandardError
+      ''
+    end
+
+    base = { address: resolution[:address], recovered: resolution[:recovered] }
+    base[:recovered_from] = resolution[:recovered_from] if resolution[:recovered]
+
+    case projection.to_s
+    when 'value'
+      status = begin step.status rescue nil end
+      begin
+        value = step.load
+      rescue StandardError => e
+        raise ScoutException,
+              JSON.generate(Cortex::Error.envelope(e, context: { phase: 'value_load',
+                                                                 address: address }))
       end
+      value = begin
+        JSON.parse(JSON.generate(value))
+      rescue StandardError
+        value.to_s
+      end
+      if String === value && value.bytesize > max_bytes
+        value = value.byteslice(0, max_bytes) +
+                "...[truncated #{value.bytesize - max_bytes} bytes]"
+      end
+      base.merge(status: status.to_s, result_kind: kind, value: value)
+    when 'info'
+      info = step.info
+      json_safe = info.each_with_object({}) do |(k, v), h|
+        h[k.to_s] = case v
+                    when Symbol, String, Numeric, TrueClass, FalseClass, NilClass then v.to_s
+                    when Array, Hash then JSON.parse(JSON.generate(v))
+                    else v.to_s
+                    end
+      end
+      base.merge(status: (begin step.status rescue nil end).to_s, info: json_safe)
+    when 'path'
+      path = step.path.to_s
+      base.merge(path: path,
+                 exists: File.exist?(path),
+                 bytes: File.exist?(path) ? File.size(path) : nil,
+                 result_kind: kind)
+    else
+      raise ScoutException, "Unknown projection #{projection.inspect}"
     end
-
-    # Read the definition BEFORE running: the run may repoint the loaded
-    # generation (update: true cleans+recomputes against the active meta), and
-    # the receipt must describe the definition that produced the result.
-    defn = Cortex.property_definition entity_type, property
-    raise ScoutException,
-          "Entity property #{entity_type}/#{property} is not active" if defn.nil? || !defn['active']
-
-    job, result = begin Cortex.run_entity_property(entity_type: entity_type, property: property,
-                                                   entity: entity, arguments: arguments || {},
-                                                   entity_options: entity_options, update: update,
-                                                   list_name: list_name, timeout: timeout)
-                  rescue Cortex::EntityPropertyTimeout
-                    raise ScoutException, $!.message
-                  rescue ScoutException
-                    raise ScoutException
-                  rescue Exception
-                    Log.exception $!
-                    raise ParameterException, "Property execution raised: #{$!.message}"
-                  end
-
-    # The engine (Cortex.run_entity_property) records every execution into the
-    # properties registry itself, including the producing workflow job, so the
-    # task only builds the receipt here.
-
-    receipt = { entity_type: entity_type, entity: entity, property: property,
-                arguments: arguments || {},
-                definition_version: defn['version'], definition_digest: defn['digest'],
-                # A list receiver fans out to one job per member; the receipt
-                # stays a single object: property_job is a String for a scalar
-                # receiver and an Array of Strings for a list receiver.
-                property_job: Array === job ? job.collect(&:short_path) : job.short_path,
-                result: result }
-    unless list_name.nil?
-      receipt[:entity_list] = "#{entity_type}/#{list_name}"
-      receipt[:entity_count] = Array === entity ? entity.length : 1
-    end
-
-    # Inline JSON arrays with more than three members still execute (backwards
-    # compatible), but the receipt carries a note steering the agent towards the
-    # canonical named-list workflow for any repeated or multi-entity work.
-    if list_name.nil? && Array === entity && entity.length > 3
-      receipt[:note] = "Executed on an inline array of #{entity.length} entities. " \
-                       "For multi-entity work, define a named list with cortex_write_list " \
-                       "and pass it through the list input (find existing lists with " \
-                       "cortex_list type=lists); executions are then recorded under the " \
-                       "list name and indexed per member."
-    end
-    receipt
   end
 
 end

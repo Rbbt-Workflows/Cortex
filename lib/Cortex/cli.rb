@@ -99,7 +99,8 @@ module Cortex
       'cortex_property_define' => %w[entity_type property],
       'cortex_property_update' => %w[entity_type property],
       'cortex_property_remove' => %w[entity_type property],
-      'cortex_entity_property' => %w[entity_type property entity list],
+      'cortex_property_run' => %w[entity_type property],
+      'cortex_result' => %w[address],
       'cortex_activity' => %w[entity_type entity]
     }.freeze
 
@@ -126,7 +127,8 @@ module Cortex
       'cortex_property_define' => 'Define (create) a new executable entity property',
       'cortex_property_update' => 'Update an existing property definition',
       'cortex_property_remove' => 'Remove a property definition (history is kept)',
-      'cortex_entity_property' => 'Run a property for one entity or a named list, with a job receipt'
+      'cortex_property_run' => 'Run a property for one entity or a named list; returns the run receipt (design 2.3/2.7)',
+      'cortex_result' => 'Resolve a materialized result address; value, info, or path projection (design 2.4)',
     }.freeze
 
     # Inputs declared :array but documented as JSON payloads must never be

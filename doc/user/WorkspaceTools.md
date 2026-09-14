@@ -2,8 +2,8 @@
 
 This page documents the `cortex_*` workspace tools agents use to
 navigate, extend, and manage the Cortex workspace, the two named-list
-tools (`cortex_write_list` / `cortex_read_list`), and the eight
-`cortex_property*` / `cortex_entity_property` tools for executable entity
+tools (`cortex_write_list` / `cortex_read_list`), and the
+`cortex_property*` / `cortex_result` tools for executable entity
 properties.
 
 **You should read this if:** you are writing prompts for agents that work
@@ -20,19 +20,21 @@ inside Cortex, or you are an agent that just got the Cortex tools.
 5. `cortex_edit` — targeted corrections
 6. `cortex_rename` / `cortex_move` / `cortex_remove` — deliberate
    management of existing resources
-7. `cortex_property_list` / `cortex_property_read` / `cortex_property_validate`
-   — discover and inspect entity properties
-8. `cortex_property_define` / `_update` / `_remove` — version executable
-   definitions (never generic write/edit)
-9. `cortex_entity_property` — execute a property and get an evidence receipt
-   citing the producing job
-10. `cortex_list type=properties` — see which entities/properties have
-    already been investigated, with which arguments
-11. `cortex_write_list` / `cortex_read_list` — name entity lists once and
+7. `cortex_property_list` / `cortex_property_read` / `cortex_property_history`
+   — discover and inspect entity property definitions
+8. `cortex_property_define` / `_update` / `_validate` / `_remove` —
+   version executable definitions (never generic write/edit)
+9. `cortex_property_run` — execute a property for an entity or a named
+   list and get the run receipt (address + materialized evidence)
+10. `cortex_result` — resolve a result address to its value, info, or
+    path (never re-executes)
+11. `cortex_list type=properties` — see the materialized results under
+    var/jobs (current evidence) and legacy execution records (history)
+12. `cortex_write_list` / `cortex_read_list` — name entity lists once and
     run properties over them by reference
-12. `cortex_activity` — deterministic recall of everything already known
-    about ONE entity (defined properties, examinations, containing lists,
-    mentions); no LLM, no recomputation
+13. `cortex_activity` — deterministic recall of everything already known
+    about ONE entity (defined properties, materialized results, legacy
+    records, containing lists, mentions); no LLM, no recomputation
 
 Rules of thumb:
 
@@ -46,13 +48,13 @@ Rules of thumb:
   paged with `offset`/`limit`.
 - **Multi-entity work is list-first**: define a named list once
   (`cortex_write_list`, discover existing ones with
-  `cortex_list type=lists`) and pass it as `list:`. Inline JSON arrays
-  still execute, but for more than three members the receipt carries a
-  `note` steering you back to named lists: they keep execution records
-  legible, carry `entity_options`, and are indexed per member.
-- Before running anything, check `cortex_list type=properties`: an
-  already-investigated question shows up there with its arguments and
-  producing jobs.
+  `cortex_list type=lists`) and pass it as `list:`. A `:single` property
+  over a list fans out to one materialized result per member, each with
+  its own address (`<member>_<md5>`); `:array`/`:both` produce one
+  vector result labeled `Default_<md5>`.
+- Resolve evidence by address, never by hand: `cortex_result(address)`
+  returns value, info, or path; a mangled address prefix is recovered by
+  its hex tail (16..32 hex digits) and reported loudly.
 - Execution is timeout-bounded (per-call `timeout:` input; config key
   `timeout` with tokens `entity_property`/`cortex`; env
   `CORTEX_ENTITY_PROPERTY_TIMEOUT`; default 3600s; `0`/`false`/`none`
@@ -61,6 +63,32 @@ Rules of thumb:
   applies to the optional smoke executions of `cortex_property_define`,
   `cortex_property_update` and `cortex_property_validate`: a hanging
   candidate body fails those checks instead of wedging the task.
+
+### Property vocabulary (one line each)
+
+- **entity type** — an anonymous Workflow module named exactly `<Type>`;
+  its results live under `var/jobs/<Type>/`.
+- **entity** — a plain String id; the readable prefix of a result
+  address.
+- **property** — a named, versioned, executable transformation of an
+  entity into a typed result.
+- **definition identity** — the `(version, digest)` pair; travels as
+  three hidden task inputs so every address embeds it.
+- **argument set** — the exact non-default argument values of one run;
+  digested into the address suffix.
+- **result kind** — the declared serialization (`string`, `tsv`,
+  `json`, ...); structured kinds add the file extension.
+- **materialized result** — the Step the run produced: result file +
+  `.info` sidecar + `.files/` aux directory.
+- **address** — `<Type>/<property>/<label>` (the Step's `short_path`);
+  the canonical reference to a materialized result.
+- **dependency** — a declared upstream property; its address is
+  digested into the downstream address.
+- **receipt** — the JSON envelope of a run; every field is copied
+  mechanically from the Step (address, definition, materialized
+  path/bytes, status, bounded value).
+- **named list** — a versioned set of entity ids; the receiver of
+  list runs.
 
 ---
 
@@ -98,144 +126,53 @@ cortex_brief(conversation:, prompt:, agent:, tools: [], reply: false)
   receives exactly the provisioned tools (plus the framework's own
   mandatory `tool: Cortex` entry).
 - `reply`: `false` (default) stores the prompt (and the tool block when
-  `tools` is given) with **no inference pass** — the brief grows by exactly
-  one `user` message and nothing runs, so no `job=` receipt is produced.
-  This is the intended mode when the briefing instructions you supply are
-  already the operational knowledge. `reply: true` additionally runs the
-  agent and appends its answer to the brief; the receipt contract is the
-  same as `cortex_continue` (`agent_meta` with the `job=` provenance edge
-  into the producing execution).
+  given) without running any inference; `true` has the agent draft the
+  briefing text and appends its answer.
 
-### Tool specs
+## `cortex_list`  -  metadata-only listing
 
-| Spec | Persisted messages | Effect on the accepted inputs |
-|------|--------------------|-------------------------------|
-| `Baking` | `introduce: Baking` + `tool: Baking` | every task of the workflow becomes a tool, with all its inputs |
-| `Baking bake_muffin_tray` | `tool: Baking bake_muffin_tray` | one task, all its inputs accepted |
-| `Baking bake_muffin_tray blueberries` | `tool: Baking bake_muffin_tray blueberries` | one task; accepted inputs restricted to `blueberries` (plus the automatic `return_path`) |
-| `Baking bake_muffin_tray noinputs` | `tool: Baking bake_muffin_tray noinputs` | one task; no task inputs accepted (`none` is an equivalent alias) |
-| `Baking bake_muffin_tray blueberries=false` | `tool: Baking bake_muffin_tray blueberries=false` | one task; `blueberries` pre-filled with default `false` at call time and not part of the accepted input set (upstream `name=value` semantics: defaults are hidden from the model) |
-| `Baking bake_muffin_tray blueberries=false wheat_type` | `tool: Baking bake_muffin_tray blueberries=false wheat_type` | one task; `blueberries` defaulted, accepted inputs restricted to `wheat_type` |
+Paginated listing of one namespace (or `all`): `conversations`, `briefs`,
+`artifacts`, `entities` (property definitions), `lists`, `properties`
+(materialized results + legacy execution records). Never returns
+contents; every row carries the path map in its own column.
 
-Worked example — `tools: ["ScoutCoder help_workflow", "Boolean
-trap_spaces network cft=default", "Baking"]` persists exactly these
-messages at the top of the brief, in array order:
+For `type=properties` the rows combine **current evidence** — one row per
+materialized result under `var/jobs`, tagged `step_info`, with its
+status and definition version/digest — and **history** — one row per
+legacy registry record, tagged `registry_history`. The execution
+registry store itself is retired: nothing writes it, the records stay
+on disk untouched.
 
-```
-tool: ScoutCoder help_workflow
-tool: Boolean trap_spaces network cft=default
-introduce: Baking
-tool: Baking
-```
+## `cortex_search`  -  lexical search
 
-Behavioral notes:
-
-- Spec strings are pasted **verbatim** into the tool messages (whitespace
-  tokens rejoined by single spaces); there is no semantic rewriting, and
-  the upstream scout-ai `tool:` message semantics govern what the tokens
-  mean at continue time.
-- Validation is syntax only (workflow/task names identifier-like; tokens
-  are bare identifiers or `name=value`; `noinputs`/`none` only as the sole
-  input token). A malformed spec raises an actionable `ScoutException`
-  naming the spec and the grammar. Workflow/task existence is **not**
-  checked at brief time — specs are resolved when the brief is used, and
-  an unknown workflow may trigger an upstream install attempt then.
-- Update semantics: a brief update **with** `tools` replaces the entire
-  existing tool block (all `tool:`/`introduce:`/`kb:`/`mcp:` messages
-  stripped, new block prepended); an update **without** `tools` leaves the
-  tooling untouched; `tools: []` strips all tooling.
-- Input encoding: the `tools` input is a JSON array of strings (never
-  comma-split).
-- Delivery path: provisioning takes effect only via `Agent/brief` in
-  `cortex_continue`; the spawned agent's chat carries exactly the
-  provisioned tooling plus the framework's own mandatory `tool: Cortex`
-  entry.
-- Briefs define their own tooling deliberately (see
-  [../developer/ToolExposure.md](../developer/ToolExposure.md)).
-- Schema changes to briefs/tool exposure can invalidate provider
-  prompt-cache prefixes for cached conversations one time.
-
-## `cortex_list`  -  compact inventory
-
-Lists namespaces and their entries with metadata only. Never returns
+Case-insensitive multi-term (AND) search over conversation messages,
+briefs, artifacts, lists and properties records. Returns compact
+matches with short snippets only. Over `properties` it matches the
+current Step evidence (address + identity) and the legacy record
 contents.
-
-```
-cortex_list(type: "all", prefix: "", offset: 0, limit: 50)
-```
-
-- `type`: `conversations`, `briefs`, `artifacts`, or `all` (explicit; briefs
-  are never implicitly included in `conversations`).
-- `prefix`: only entries whose name starts with it.
-- `offset` / `limit`: pagination. The section header reports
-  `<shown>/<total> entries` and, when more exist, `(more: offset=N)`.
-
-Output shape (the path map is always its own `map` column, right after
-`#name`; the `name` column holds the clean logical name, so an entry
-existing in several maps simply appears once per map):
-
-```
-conversations\t1 entry
-  #name\tmap\tmessages\tbytes\tmtime
-  Summing\tcurrent\t14\t34578\t2026-08-24 23:10
-briefs\t1 entry
-  #name\tmap\tmessages\tbytes\tmtime
-  bash-math\tcurrent\t3\t391\t2026-08-24 23:09
-artifacts\t1 entry
-  #name\tmap\tbytes\tmtime
-  summing/answer.md\tcurrent\t278\t2026-08-24 23:10
-```
-
-## `cortex_search`  -  find material by content
-
-Lexical, case-insensitive, multi-term AND. Single term matches substring;
-several terms must all appear in the same resource. Searches all readable
-path maps (`:lib`, `:current`).
-
-```
-cortex_search(query:, type: "all", limit: 20)
-```
-
-- `type`: `all | conversations | briefs | artifacts` (exact interface, no
-  implicit expansion).
-- `limit`: maximum number of matches.
-
-Returns compact snippets (`#type\tname\tmap\tsnippet`), not full evidence.
-Read the resource for the full context.
 
 ## `cortex_read`  -  bounded read
 
-Artifacts and conversations, always bounded.
+Reads conversations (index or slices), briefs, artifacts (line-paginated),
+entity lists, and property records:
+
+- `type=properties`, `name=<Type>/<property>/<label-or-receiver>`:
+  resolves the address **first against var/jobs** (current evidence: the
+  rendered sidecar summary, tagged `CURRENT`) and falls back to the
+  legacy record (tagged `LEGACY`, `registry_history`) when no
+  materialized result matches. Never executes anything.
+
+## `cortex_write`  -  write or append an artifact
 
 ```
-cortex_read(type:, name:, last: nil, range: nil, start_line: 1, line_count: 200)
+cortex_write(path:, content:, mode: "replace"|"append", agent:)
 ```
 
-- Artifacts: line-based pagination. Response header reports
-  `# lines A-B of T (next: B+1)` or `(end)`, plus total byte size; a
-  50,000-character safety cap applies on top.
-- Conversations: compact per-message index by default; `last` or `range`
-  (`"a-b"`, capped at 50k chars) fetch full message content.
-- Resolution: readable maps in `[:lib, :current]` order; deterministic
-  `:lib` precedence. When a name exists in both maps, the read states the
-  ambiguity and shows all physical paths instead of hiding it.
+Creates or updates `artifacts/<path>` with full version history
+(`.history` snapshots) and provenance in `.meta` (job, agent, mode,
+map, timestamp, size). Append mode adds to the end, creating if absent.
 
-## `cortex_write`  -  create/update an artifact
-
-```
-cortex_write(path:, content:, mode: "replace", agent:)
-```
-
-- Creates a missing artifact or updates an existing one.
-- `mode: "replace"` snapshots the previous version to
-  `artifacts/.history/<name>/<timestamp>.<n>`; `mode: "append"` adds to the
-  end, creating if absent.
-- Records provenance in `artifacts/.meta/<name>.json`: job, agent, mode,
-  timestamp, size. No second provenance system — the workflow job is the
-  source of truth.
-- Returns a one-line confirmation (never the whole content).
-
-## `cortex_edit`  -  surgical text replacement
+## `cortex_edit`  -  exact text edit
 
 ```
 cortex_edit(name:, find:, replace:, all: false, agent:)
@@ -284,19 +221,91 @@ the path map.
 
 ---
 
+## `cortex_property_define` / `cortex_property_update`  -  version a definition
+
+`body` is the COMPLETE Ruby body as one string — whole-file semantics:
+every write replaces the file; there is no in-place mutation code path.
+Inputs take `result_kind` (the old `result_type` spelling is still
+accepted and reported with a loud deprecation warning). The returned
+definition receipt is `{entity_type, property, version, digest,
+definition_path, property_type, result_kind}`. A candidate is staged in
+a throwaway module and optionally smoke-run **before** anything is
+written; a smoke failure blocks activation.
+
+## `cortex_property_validate`  -  check a candidate, never mutate
+
+Compiles the candidate (or the active definition, when `body` is
+omitted) in a staging module built from the type's active manifest, and
+when a `test_entity` is given ALWAYS runs the smoke in a fresh scratch
+directory with `clean: true`: a cached previous run's error text is
+structurally unobservable. Validate never writes the definition store.
+The smoke also performs the kind check (declared result kind vs the
+class actually loaded). Returns `{valid, address, checks, errors,
+smoke}`; `smoke` failures carry the section 2.6 envelope (verbatim
+message, bareness flag, verdict).
+
+For a property with `dependencies`, the staging module is built from the
+type's full active manifest (dependencies installed alongside the
+candidate), because the dep block resolves the upstream task inside the
+same module: staging the candidate alone leaves the dependency nil and
+the smoke fails with `undefined method 'path' for nil`.
+
+## `cortex_property_run`  -  execute and get the receipt
+
+```
+cortex_property_run(entity_type:, property:, entity: | list:,
+                    arguments: {}, update: false, timeout:, agent:)
+```
+
+`entity` or `list` (never both; `list` is `<type>/<list>`). Inline JSON
+array entity payloads are accepted and fan out. Dispatch: `:single`
+arity produces ONE Step per receiver member (a list run yields N
+receipts, each address `<member>_<md5>[.ext]`); `:array`/`:both`
+produce ONE vector Step labeled `Default_<md5>` (built with the `list:`
+receiver). A member that fails does not fail the run: its receipt
+carries the error envelope and `failed_members`/`total_members` counts.
+`update: true` cleans and recomputes at the same address; a named-list
+run whose list file is newer than a done Step is stale and recomputes
+automatically.
+
+The receipt (section 2.7) is `{entity_type, property, receiver,
+arguments, definition:{version,digest}, address, result_kind, status,
+value (bounded), materialized:{path,bytes}, info_path}` — every field
+mechanically derived from the produced Step or the call inputs.
+
+## `cortex_result`  -  resolve an address (never executes)
+
+```
+cortex_result(address:, projection: :value|:info|:path, max_bytes: 5000)
+```
+
+Resolution: exact literal path → `var/jobs`-prefixed short_path
+(`Step.load`) → one recovery pass matching the address's hex tail
+(16..32 hex digits) inside `var/jobs/<Type>/<property>/`, reported
+loudly in the output (`recovered: true`, `recovered_from: <tail>`) →
+structured `ParameterException` listing the candidate labels found in
+the directory. Ambiguous tails error with both candidates. Projections
+of the SAME resolved Step: `:value` (bounded payload), `:info` (the
+full `.info` sidecar, including the identity inputs), `:path` (the PATH
+STRING itself, not file content — hand it to a probe or a downstream
+`dep`).
+
+---
+
 ## `cortex_activity`  -  recall everything around one entity
 
 Read-only join over existing stores: for one `entity_type`/`entity` it
-reports the properties defined for that type, which of them have already
-been examined for that exact entity (with argument combinations, run
-counts and the producing job reference), the named lists of that type
-containing the entity, and the conversations/briefs/artifacts that mention
-the entity id. Result payloads are never included: follow up with
-`cortex_entity_property` to obtain them. `facets` selects sections
-(comma-separated; empty means all, in a fixed order), `limit` caps items
-per section. Identical inputs over an identical workspace produce
-identical output. Deterministic text matching only: no LLM, no semantic
-ranking, no entity extraction.
+reports the properties defined for that type, the materialized results
+under `var/jobs` for that exact entity (current evidence, tagged
+`step_info`), the legacy execution records that mention it (history,
+tagged `registry_history`), the named lists of that type containing the
+entity, and the conversations/briefs/artifacts that mention the entity
+id. Result payloads are never included: follow up with
+`cortex_result(address)` to inspect the evidence. `facets` selects
+sections (comma-separated; empty means all, in a fixed order), `limit`
+caps items per section. Identical inputs over an identical workspace
+produce identical output. Deterministic text matching only: no LLM, no
+semantic ranking, no entity extraction.
 
 Reading the result:
 
@@ -305,12 +314,12 @@ Reading the result:
   is how you tell "only three investigations exist" from "twenty exist,
   three shown" (raise `limit` or query `cortex_list type=properties` for
   the rest).
-- `investigations[].status` separates the historical fact from the current
-  capability: `active` (re-runnable now, recorded version is current),
-  `older` (a newer definition version is current; the recorded
-  `definition_digest` identifies the code that produced the recorded
-  evidence), `removed` (definition was removed; the record is history
-  only, re-define before re-running).
+- `investigations[].status` separates the historical fact from the
+  current capability: `active` (re-runnable now, recorded definition
+  version is current), `older` (a newer definition version is current;
+  the recorded `definition_digest` identifies the code that produced the
+  recorded evidence), `removed` (definition was removed; the record is
+  history only, re-define before re-running).
 - `mentions` are raw lexical matches and a discovery hint only: hits
   include incidental occurrences (tool-call transcripts, table rows).
   Never infer presence, absence, importance or scientific relevance from
@@ -320,10 +329,13 @@ Reading the result:
 
 ## Caching note
 
-Like every Scout task, results are cached per input combination. If the
-workspace changed since a previous identical call, use a different input
-(e.g. a different `offset`/`limit`) or clear the job.
+Like every Scout task, results are cached per input combination. Property
+results are content-addressed: the same (definition identity, argument
+set, receiver, dependencies) always lands on the same address, and a
+done Step is reused without recomputation. If the workspace changed
+since a previous identical call, use a different input (e.g. a
+different `offset`/`limit`) or clear the job.
 
-Named-list exceptions: if a `cortex_write_list`-managed list file changes
-after a `cortex_entity_property` run, the next identical call detects the
-stale jobs by mtime and recomputes automatically.
+Named-list exceptions: if a `cortex_write_list`-managed list file
+changes after a `cortex_property_run` run, the next identical call
+detects the stale jobs by mtime and recomputes automatically.

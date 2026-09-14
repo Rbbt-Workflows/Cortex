@@ -1,4 +1,5 @@
 require_relative 'storage'
+require_relative 'evidence'
 
 # ==========================================================================
 # Cortex listing / search / bounded read
@@ -43,7 +44,7 @@ module Cortex
     case type.to_s
     when 'conversations', 'briefs' then ['#name', 'map', 'messages', 'bytes', 'mtime']
     when 'artifacts' then ['#name', 'map', 'bytes', 'mtime']
-    when 'properties' then ['#name', 'map', 'examinations', 'runs', 'last_run']
+    when 'properties' then ['#name', 'map', 'source', 'status', 'definition', 'receiver/last_run']
     when 'entities' then ['#name', 'map', 'version', 'digest', 'type', 'mtime']
     when 'lists' then ['#name', 'map', 'entities', 'mtime']
     end
@@ -75,18 +76,31 @@ module Cortex
           row
         end.compact
     when 'properties'
-      # One row per execution record: Type/property/receiver.json
+      # Design §4: current = Step sidecars under var/jobs (one row per
+      # materialized result); history = legacy registry records read as-is.
       require 'json'
+      rows = []
+      Cortex.step_evidence.each do |e|
+        name = [e['entity_type'], e['property'], File.basename(e['address'].to_s)].join('/')
+        next unless prefix.nil? || name.start_with?(prefix)
+        rows << [name, 'var/jobs', 'step_info', e['status'].to_s,
+                 "v#{e['definition_version']} #{e['definition_digest'][0, 8]}",
+                 e['last_run'].to_s]
+      end
       namespace_entries(:properties).
         select { |name, _map, _path| prefix.nil? || name.start_with?(prefix) }.
-        collect do |name, map, path|
-          next nil unless File.file?(path)
+        each do |name, map, path|
+          next unless File.file?(path)
           record = JSON.parse(File.read(path)) rescue {}
-          [name, map.to_s,
-           Array(record['examinations']).length.to_s,
-           record['runs'].to_s,
-           record['last_run'].to_s]
-        end.compact
+          last = Array(record['examinations']).collect { |ex| ex['last_run'].to_s }.max.to_s
+          # LEGACY registry record (history-only store; nothing writes it):
+          # the 'examinations' array and its spelling are the retired
+          # format, kept verbatim for recall.
+          rows << [name, map.to_s, 'registry_history', 'record',
+                   "v#{record['examinations'].to_a.first.to_h['definition_version']} #{record['examinations'].to_a.first.to_h['definition_digest'].to_s[0, 8]}",
+                   last]
+        end
+      rows.sort_by { |r| [r[0], r[1]] }
     when 'entities'
       # Group by entity type; each row is one property definition
       # (Type/property).  Meta is the source of truth for version/digest.
@@ -183,6 +197,26 @@ module Cortex
     snip = '...' + snip if pre > 0
     snip = snip + '...' if pre + window < content.length
     snip.gsub(/\s+/, ' ').strip
+  end
+
+  # Properties namespace search (design §4): matches current Step evidence
+  # (address + definition identity) AND legacy record content (history).
+  def self.search_properties(query, limit)
+    terms = search_terms query
+    out = []
+    step_evidence.each do |e|
+      text = [e['address'], e['property'], e['receiver'], e['definition_digest'],
+              e['arguments'].to_s].join(' ').downcase
+      next unless matches_query?(text, terms)
+      out << ['properties', File.basename(e['address'].to_s), 'var/jobs',
+              "step_info #{e['status']} #{e['address']}"]
+      break if out.length >= limit
+    end
+    remaining = limit - out.length
+    if remaining > 0
+      out += search_text_namespace(query, :properties, remaining)
+    end
+    out.first(limit)
   end
 
   # Artifact-like namespaces (artifacts, lists): plain text content search.

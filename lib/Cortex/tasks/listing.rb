@@ -28,7 +28,7 @@ module Cortex
     end
     rows += search_artifacts(query, limit - rows.length) if type != 'conversations' && type != 'lists' && rows.length < limit
     rows += Cortex.search_text_namespace(query, :lists, limit - rows.length) if type != 'conversations' && type != 'artifacts' && rows.length < limit
-    rows += Cortex.search_text_namespace(query, :properties, limit - rows.length) if type != 'conversations' && type != 'artifacts' && type != 'lists' && rows.length < limit
+    rows += Cortex.search_properties(query, limit - rows.length) if type != 'conversations' && type != 'artifacts' && type != 'lists' && rows.length < limit
     if rows.empty?
       "No matches for #{query.inspect}"
     else
@@ -61,11 +61,26 @@ module Cortex
       out << entities * "\n"
       out * "\n"
     when 'properties'
-      type_name, property, receiver = name.split(File::SEPARATOR, 3)
-      raise ScoutException, "Property execution name must be <Type>/<property>/<receiver>" if receiver.nil? || receiver.empty?
-      rec = Cortex.load_execution_record(type_name, property, receiver)
-      raise ScoutException, "No property execution #{name.inspect} under var/cortex/properties (list with cortex_list type=properties)" if rec.nil?
-      out = ["Property executions for #{rec['entity_type']}.#{rec['property']} on #{rec['receiver']}",
+      type_name, property, label = name.split(File::SEPARATOR, 3)
+      raise ScoutException, "Property execution name must be <Type>/<property>/<label or receiver>" if label.nil? || label.empty?
+      # CURRENT: an address under var/jobs (label may be <id>_<md5>[.ext])
+      ev = Cortex.step_evidence(type_name, property).
+            find { |e| File.basename(e['address'].to_s) == label || e['address'] == name }
+      if ev
+        out = ["Property execution #{ev['address']} (source step_info, CURRENT)",
+               "status: #{ev['status']}  definition: v#{ev['definition_version']} #{ev['definition_digest'][0, 8]}",
+               "first_run: #{ev['first_run']}  last_run: #{ev['last_run']}",
+               "arguments: #{ev['arguments'].inspect}",
+               "info_path: #{ev['info_path']}",
+               'resolve it with cortex_result(address, projection)']
+        next out * "\n"
+      end
+      # HISTORY: LEGACY registry record (receiver-keyed). The
+      # 'examinations' array and the 'property_job' field rendered below
+      # are the retired registry vocabulary, kept verbatim for recall.
+      rec = Cortex.load_execution_record(type_name, property, label)
+      raise ScoutException, "No property execution #{name.inspect}: not a materialized result under var/jobs and no legacy record under var/cortex/properties (list with cortex_list type=properties)" if rec.nil?
+      out = ["Property executions for #{rec['entity_type']}.#{rec['property']} on #{rec['receiver']} (source registry_history, LEGACY)",
              "first_run: #{rec['first_run']}  last_run: #{rec['last_run']}"]
       rec['examinations'].each_with_index do |e, i|
         out << "##{i + 1} arguments=#{e['arguments'].inspect} runs=#{e['runs']}"

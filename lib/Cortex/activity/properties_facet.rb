@@ -13,7 +13,8 @@ module Cortex
     items = defs.collect do |d|
       meta = d[:meta] || {}
       { 'property' => meta['property'].to_s,
-        'result_type' => meta['result_type'].to_s,
+        'result_kind' => (meta['result_kind'] || meta['result_type']).to_s,
+        'result_type' => (meta['result_type'] || meta['result_kind']).to_s,
         'property_type' => meta['property_type'].to_s,
         'definition_version' => meta['version'].to_s,
         'definition_digest' => meta['digest'].to_s[0, 8],

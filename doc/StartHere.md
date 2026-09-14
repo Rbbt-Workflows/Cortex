@@ -10,8 +10,9 @@ properties under `var/cortex/` organized in namespaces
 `cortex_remove`, `cortex_move`, plus the property tools
 `cortex_property_list`, `cortex_property_read`, `cortex_property_history`,
 `cortex_property_validate`, `cortex_property_define`,
-`cortex_property_update`, `cortex_property_remove`, and
-`cortex_entity_property`, plus `cortex_write_list`/`cortex_read_list` for
+`cortex_property_update`, `cortex_property_remove`,
+`cortex_property_run` and `cortex_result`, plus
+`cortex_write_list`/`cortex_read_list` for
 named entity lists and `cortex_activity` for read-only recall around one
 entity) that any agent gets automatically when working through Cortex.
 

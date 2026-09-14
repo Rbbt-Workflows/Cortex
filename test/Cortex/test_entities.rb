@@ -51,15 +51,44 @@ module TestEntitiesHelpers
       test_entity: rest.delete(:test_entity), test_arguments: rest.delete(:test_arguments))
   end
 
-  def run_prop(type, property, entity, arguments: {}, update: false)
-    Cortex.run_entity_property(entity_type: type, property: property,
-                               entity: entity, arguments: arguments,
-                               entity_options: nil, update: update)
+  def run_prop(type, property, entity, arguments: {}, update: false, timeout: nil)
+    # Redesign step 5: the old run engine (Cortex.run_entity_property) is
+    # retired; runs go through Cortex::Properties.run_property.  The helper
+    # keeps its [primary, value] shape; primary is the resolved Step of the
+    # produced address (nil for fan-outs, whose callers use values).
+    out = Cortex::Properties.run_property(entity_type: type, property: property,
+                                          receiver: entity, arguments: arguments,
+                                          update: update, timeout: timeout)
+    if Array === out
+      [nil, out.collect { |r| r[:value] }]
+    elsif out[:error]
+      step = Step.load(out[:materialized][:path])
+      [step, nil]
+    else
+      step = Step.load(out[:materialized][:path])
+      [step, out[:value]]
+    end
   end
 
   def assert_scout_ex(label = nil, msg = nil)
-    e = assert_raises(ScoutException) { yield }
-    assert_match(msg, e.message, "#{label}: message should be actionable") if msg
+    # Step 5: the new run path wraps input-validation failures in the §2.6
+    # envelope and raises ParameterException (a ScoutException subclass via
+    # Scout's hierarchy) whose message IS the envelope JSON.
+    # test-unit's assert_raises is exact-class: catch any ScoutException
+    # family member (the new path raises ParameterException for §2.6
+    # envelopes) and fall back to the envelope text for the match.
+    e = nil
+    begin
+      yield
+      flunk "#{label}: expected ScoutException, nothing raised"
+    rescue Test::Unit::AssertionFailedError
+      raise
+    rescue ScoutException => ex
+      e = ex
+    end
+    text = e.message
+    text = (JSON.parse(text)['exception_message'] rescue text)
+    assert_match(msg, text, "#{label}: message should be actionable") if msg
     e
   end
 end
@@ -419,18 +448,19 @@ class TestCortexEntities < Test::Unit::TestCase
 
     t0 = Time.now
     e  = assert_raises(Cortex::EntityPropertyTimeout) do
-      Cortex.run_entity_property(entity_type: 'ProbeGene', property: 'slow',
-                                 entity: 'E1', timeout: 1)
+      Cortex::Properties.run_property(entity_type: 'ProbeGene', property: 'slow',
+                                      receiver: 'E1', arguments: {}, timeout: 1)
     end
     assert_operator Time.now - t0, :<, 10, 'timeout must interrupt a sleeping body'
 
-    j, = Cortex.entity_property_job(entity_type: 'ProbeGene', property: 'slow', entity: 'E1')
+    mod = Cortex.load_entity_type('ProbeGene')
+    j, = Cortex::Properties.send(:build_jobs, mod, 'ProbeGene', 'slow', 'E1',
+                                 {}, vector: false)
     assert_equal 'error', j.info[:status].to_s
     refute File.exist?(j.path), 'interrupted step must leave no result file'
 
     # rerun unbounded recomputes at the same path
-    job, result = Cortex.run_entity_property(entity_type: 'ProbeGene', property: 'slow',
-                                             entity: 'E1', timeout: 'none')
+    job, result = run_prop('ProbeGene', 'slow', 'E1', timeout: 'none')
     assert_equal 'done', job.info[:status].to_s
     assert_equal 'E1', result
   end
@@ -441,8 +471,7 @@ class TestCortexEntities < Test::Unit::TestCase
     assert_equal 'done', job.info[:status].to_s
 
     t0 = Time.now
-    _, result = Cortex.run_entity_property(entity_type: 'ProbeGene', property: 'fast',
-                                           entity: 'F1', timeout: 1)
+    _, result = run_prop('ProbeGene', 'fast', 'F1', timeout: 1)
     assert_equal 'F1', result
     assert_operator Time.now - t0, :<, 2
   end
@@ -456,16 +485,17 @@ class TestCortexEntities < Test::Unit::TestCase
 
     t0 = Time.now
     assert_raises(Cortex::EntityPropertyTimeout) do
-      Cortex.run_entity_property(entity_type: 'ProbeGene', property: 'slow',
-                                 entity: %w[M1 M2 M3], list_name: 'panel', timeout: 6)
+      Cortex::Properties.run_property(entity_type: 'ProbeGene', property: 'slow',
+                                      receiver: { list: 'ProbeGene/panel' },
+                                      arguments: {}, timeout: 6)
     end
     assert_operator Time.now - t0, :<, 15, 'fan-out loop must be bounded too'
   end
 
-  def test_cortex_entity_property_task_timeout_input
+  def test_cortex_property_run_task_timeout_input
     define('ProbeGene', 'slow', body: 'sleep 30; entity.to_s')
 
-    job = Cortex.job(:cortex_entity_property, 'timeout1',
+    job = Cortex.job(:cortex_property_run, 'timeout1',
                      entity_type: 'ProbeGene', property: 'slow', entity: 'E1', timeout: 1)
     e = assert_raises(ScoutException) { job.exec }
     assert_match(/timeout/, e.message)

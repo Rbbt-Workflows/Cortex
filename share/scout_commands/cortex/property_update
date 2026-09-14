@@ -23,7 +23,8 @@ options = SOPT.setup <<~EOF
   -b--body* New Ruby body; omit to keep the current one
   -d--description* New description; omit to keep the current one
   -pr--property_type* Property arity: single, array, or both; omit to keep the current one
-  -r--result_type* Scout result type; omit to keep the current one
+  -r--result_kind* Declared result kind; omit to keep the current one
+  -re--result_type* DEPRECATED alias of result_kind (accepted indefinitely, reported loudly)
   -a--arguments* Argument specs in JSON; omit to keep the current ones
   -de--dependencies* Same-entity property names; omit to keep the current ones
   -t--test_entity* Entity identifier for a pre-activation smoke execution

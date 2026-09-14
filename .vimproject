@@ -3,36 +3,18 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
  start_chat
  workflow.rb
  chats=chats filter="*"{
-  EvolveCortex.md
   briefs
-  continue
-  cortex
-  develop
-  entities
-  fit_agent
-  history
-  history.analysis
-  inheritance
-  inheritance_test
-  lib_path_map
-  lib_path_map.analysis
+
   observation
-  path_map
-  test
-  test.analysis
+
+  cortex
+
   timeout
+
+  arguments
  }
  lib=lib {
   Cortex=Cortex{
-   artifacts.rb
-   briefs.rb
-   conversations.rb
-   entities.rb
-   helpers.rb
-   listing.rb
-   lists.rb
-   path_maps.rb
-   storage.rb
    activity.rb
    activity=activity{
     context.rb
@@ -41,6 +23,21 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
     mentions_facet.rb
     properties_facet.rb
    }
+   artifacts.rb
+   briefs.rb
+   cli.rb
+   conversations.rb
+   entities.rb
+   evidence.rb
+   helpers.rb
+   listing.rb
+   lists.rb
+   path_maps.rb
+   properties.rb
+   properties_run.rb
+   receipt.rb
+   storage.rb
+   types.rb
    tasks=tasks{
     activity.rb
     artifact.rb

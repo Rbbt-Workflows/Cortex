@@ -43,7 +43,7 @@ module Cortex
     # Current capability of an investigated property, cross-checked against
     # the definitions that exist NOW for the entity type. This separates two
     # facts the activity report must never conflate:
-    #   historical fact  - the property WAS executed (the examination record);
+    #   historical fact  - the property WAS executed (legacy registry record);
     #   current capability - the property CAN be executed now.
     #   'active'  - definition exists, is active, and is the recorded version
     #   'older'   - definition exists and is active, but a newer version is
@@ -66,17 +66,30 @@ module Cortex
       end
     end
 
-    # Flat examination list for every entity type/property/receiver
-    # (lib/Cortex/properties.rb #all_examinations).
-    def examinations
-      @examinations ||= Cortex.all_examinations
+    # CURRENT evidence: Step sidecars under var/jobs (lib/Cortex/evidence.rb).
+    # Design §4: the .info of each materialized result carries the argument
+    # set, the definition identity, the address and the timestamps; the
+    # registry is no longer the live source.
+    def step_evidence
+      @step_evidence ||= Cortex.step_evidence(entity_type)
     end
 
-    # Examinations whose receiver or member is exactly this entity id,
-    # i.e. both direct (entity => "TP53") and per-member list runs.
-    def entity_examinations
-      @entity_examinations ||=
-        examinations.select do |e|
+    def entity_step_evidence
+      @entity_step_evidence ||=
+        step_evidence.select { |e| e['receiver'] == entity }
+    end
+
+    # HISTORY: LEGACY registry records read as-is (never written again).
+    # The 'examinations' field naming below is the retired registry
+    # vocabulary; each entry is tagged source 'registry_history' by the
+    # reader. Current evidence is `step_evidence` (var/jobs .info).
+    def legacy_examinations
+      @legacy_examinations ||= Cortex.all_examinations
+    end
+
+    def entity_legacy_examinations
+      @entity_legacy_examinations ||=
+        legacy_examinations.select do |e|
           e['entity_type'].to_s == entity_type &&
             (e['entity'].to_s == entity || (e['entity'].to_s.empty? && e['receiver'] == entity))
         end

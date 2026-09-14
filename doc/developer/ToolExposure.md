@@ -65,8 +65,9 @@ cortex_write:  required=[:path, :content]
 
 Read-only recall task (`lib/Cortex/tasks/activity.rb`, engine in
 `lib/Cortex/activity.rb`). It joins what the workspace already holds about
-ONE entity: defined properties, recorded examinations, containing named
-lists, and text mentions. No LLM, no result payloads (job references only),
+ONE entity: defined properties, materialized results (Step sidecars) plus
+legacy execution records as history, containing named lists, and text
+mentions. No LLM, no result payloads (addresses only),
 fully deterministic. Exported through `export_exec` (see `workflow.rb`), so
 it is CLI-reachable via the generic `scout cortex_activity ...` command and
 does not gain a `return_path` input. Facet selection and the extension

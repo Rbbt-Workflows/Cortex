@@ -4,9 +4,23 @@ require 'json'
 require 'digest/sha2'
 require 'timeout'
 require 'Cortex/properties'
+require 'Cortex/types'
+require 'Cortex/receipt'
+require 'Cortex/properties_run'
+require 'Cortex/evidence'
 
 # ==========================================================================
 # Cortex-managed executable Entities: engine
+# ---------------------------------------------------------------------------
+# VOCABULARY NOTE (design §9): `result_kind` is the surfaced field name in
+# every tool output. The internal/on-disk field remains `result_type` (the
+# pre-rename schema, recognized indefinitely); the rename is applied on
+# read (property_definition), and define/update accept both spellings with
+# a loud deprecation note for the old one. Do not rename the on-disk field
+# or the internal kwargs: existing definition stores must never be
+# rewritten.
+# ---------------------------------------------------------------------------
+
 # ==========================================================================
 #
 # Entity properties become first-class versioned Cortex resources.  The Ruby
@@ -352,6 +366,9 @@ module Cortex
 
       path, meta = source
       entity_validate_meta! meta, entity_type, property
+      # Design §9: the result_type -> result_kind rename is applied ON READ;
+      # the old field is recognized indefinitely and never rewritten on disk.
+      meta['result_kind'] ||= meta['result_type'] if meta['result_type']
       # Locate the map the meta came from so the body path is derived from
       # the same map root (meta lives under <root>/entities/.meta/<T>/<p>.json).
       map = read_maps.find { |m| path == entity_meta_path(entity_type, property, m) }
@@ -462,6 +479,10 @@ module Cortex
       mod.extend EntityWorkflow
       mod.name = entity_type! type
       mod.entity_name = Misc.snake_case(type).downcase
+
+      # ScoutCoder: By default new entities generate property jobs in the
+      # current directory
+      mod.directory.path_maps[:default] = :current
       ENTITY_CONVENTIONAL_ANNOTATIONS.each do |annotation|
         next if mod.annotations.include?(annotation)
         mod.annotation annotation
@@ -469,96 +490,12 @@ module Cortex
       mod
     end
 
-    # Compile a single property into +mod+.  The body is evaluated against
-    # the definition file so syntax errors and backtraces cite it.
-    def entity_compile_property!(mod, defn, identities = {})
-      type     = defn[:type]
-      property = defn[:property]
-      meta     = defn[:meta]
-      body     = defn[:body]
-      path     = defn[:body_path]
-
-      # --- declared arguments (must precede the hidden inputs) --------
-      normalize_argument_hashes(meta['arguments']).each do |arg|
-        options = {}
-        options[:required] = true if arg['required'] && arg['default'].nil?
-        # `required: true` without a default is the common case; pass a
-        # default only when one was declared so Scout keeps the input
-        # genuinely optional/required as specified.
-        mod.input arg['name'].to_sym, entity_type_sym(arg['type'] || 'string'),
-                  arg['description'].to_s, arg['default'], options
-      end
-
-      # --- hidden identity inputs -------------------------------------
-      # These participate in cache identity: a new definition version or
-      # digest yields different job paths even when all visible inputs are
-      # unchanged.  Declared AFTER the author arguments: Step bodies receive
-      # task inputs positionally in declaration order, so the author's Proc
-      # parameters must bind the first N inputs or they would receive the
-      # _cortex_definition string instead of their own values.
-      # NO defaults here: a default equal to the active value never reaches
-      # non_default_inputs, so the job hash (which does cover the whole input
-      # array) would not be computed and a definition change would reuse the
-      # old clean path.  Default-less + always provided = every job path is
-      # keyed by its definition identity.
-      mod.input :_cortex_definition, :string,
-                'Active definition identity (engine-managed; keys job cache identity)'
-      mod.input :_cortex_definition_version, :integer,
-                'Active definition version (engine-managed; keys job cache identity)'
-      mod.input :_cortex_definition_digest, :string,
-                'Active definition digest (engine-managed; keys job cache identity)'
-
-      # --- same-entity dependencies ----------------------------------
-      # A bare `dep :name` creates no usable Step dependency and drops
-      # identity inputs; forward everything explicitly.  Must be declared
-      # BEFORE the property_task that consumes it.
-      Array(meta['dependencies']).each do |dep|
-        mod.dep(dep.to_sym) do |jobname, options|
-          # `tasks` is a plain Hash keyed by Symbol, so the dep name must be
-          # a Symbol here or Workflow#job raises TaskNotFound.
-          # Forward only the arguments the dependency understands: a dep job
-          # rejects unknown inputs, and the caller may carry arguments that
-          # belong to this property (or to a sibling dependency) instead.
-          dep_args = options.slice(*entity_declared_arguments(mod, dep.to_sym))
-          # Overwrite the parent's identity inputs with the DEPENDENCY's own:
-          # `options` carries this property's identity (forwarded by its
-          # wrapper), and the dep job must be keyed by ITS active definition.
-          dep_args = dep_args.merge(identities[dep.to_sym] || {})
-          # Strip the caller's identity inputs and re-pin the dependency's:
-          # `options` carries the CALLER's definition identity (merged by its
-          # wrapper), and the dep job must be keyed by the dependency's own
-          # active definition so updating the dependency invalidates it.
-          clean = options.reject { |k, _| k.to_s.start_with?('_cortex_') }
-          mod.job(dep.to_sym,
-                  options[mod.entity_name] || options[:jobname] || jobname,
-                  clean.merge(dep_args))
-        end
-      end
-
-      # --- property task ---------------------------------------------
-      # The author body's bare locals (argument names, `entity`) resolve
-      arg_names = normalize_argument_hashes(meta['arguments']).collect { |a| a['name'] }
-      # because the eval'd Proc declares the argument list as positional
-      # parameters, and `entity` is a method on the Step's exec context.
-      # property_task then wraps this proc so :single/:array/:both behave
-      # exactly like hand-written Entity properties.
-      body_proc = entity_body_proc(body, arg_names, path)
-      mod.property_task({ property.to_sym => entity_type_sym(meta['result_type']) },
-                        meta['property_type'].to_sym, &body_proc)
-
-      # --- forwarding wrapper ----------------------------------------
-      # property_task's public property drops *args (scout-gear 10.12.2);
-      # install our own wrapper after it.
-      # Identity of THIS definition: the wrapper passes it as explicit kwargs
-      # so the job hash is pinned to it (see install_property_wrapper).
-      identity = { _cortex_definition: "#{type}/#{property}",
-                   _cortex_definition_version: meta['version'].to_i,
-                   _cortex_definition_digest: meta['digest'] }
-      install_property_wrapper(mod, property, meta['property_type'], identity)
-
-      mod
-    end
-
+# Compile a single property into +mod+.  The declaration engine now lives
+# in Cortex::Types.register (design §5); this historical entry point is
+# kept as a thin delegator so existing callers are unchanged.
+def entity_compile_property!(mod, defn, identities = {})
+  Cortex::Types.register(mod, defn, identities)
+end
     # Argument names declared by a property that was just compiled into `mod`.
     # Used by the dep forwarder to send only the arguments the dependency
     # understands (a dep job rejects unknown required/optional inputs).
@@ -829,6 +766,7 @@ module Cortex
       # unreliable (Persist.memory memoizes Task objects), so each manifest
       # digest gets its own anonymous module and the registry re-points.
       mod = entity_new_module type
+
       ordered = entity_topo_sort(definitions)
       # A property's identity inputs (definition/version/digest) must be
       # known BEFORE its dependents compile: the dep block pins the
@@ -1301,30 +1239,6 @@ module Cortex
       arguments
     end
 
-    def entity_property_job(entity_type:, property:, entity:, arguments: {}, entity_options: nil, list_name: nil)
-      type     = entity_type! entity_type.to_s
-      property = entity_property_name! property.to_s
-      mod      = load_entity_type type
-      raise ScoutException,
-            "No active entity properties for type #{type}: define one with " \
-            "Cortex.define_property first" if mod.nil?
-
-      defn = property_definition type, property
-      raise ScoutException,
-            "Entity property #{type}/#{property} is not active. Active: " \
-            "#{property_definitions(type).collect { |d| d[:property] } * ', '}. " \
-            "See Cortex.property_history for prior versions." if defn.nil? || !defn['active']
-
-      entity_validate_arguments! defn, arguments, entity_argument_closure(type, property)
-
-      # Build Steps through mod.job (never Task#job): only the module's
-      # step_module carries the `entity`/`entity_list` helpers the body needs,
-      # and only Workflow#job extends a Step with it.
-      jobs = entity_vector_job mod, property, entity, arguments,
-        entity_options: entity_options, list_name: list_name
-      [jobs.first, jobs]
-    end
-
     # Identity inputs of the ACTIVE definition, passed explicitly on every job
     # we build.  Scout hashes only non-default inputs, so explicit values are
     # what pins a job path to its definition version/digest.
@@ -1333,173 +1247,6 @@ module Cortex
       { _cortex_definition: "#{type}/#{property}",
         _cortex_definition_version: defn['version'].to_i,
         _cortex_definition_digest: defn['digest'] }
-    end
-
-    # Build the property Step(s) for a receiver.
-    #
-    # Always constructs Steps through `mod.job` (Workflow#job) so each Step is
-    # extended with the module's step_module: the body's `entity` /
-    # `entity_list` helpers live in that mixin, and a Step built straight from
-    # Task#job executes the body WITHOUT them (NameError on `entity_list`,
-    # critic finding).
-    #
-    # Dispatch (critic-verified semantics):
-    #   :single, :array -> one Step per receiver member; the body always sees
-    #                      a single `entity`.  A list receiver maps to an Array
-    #                      of Steps and an Array of results.
-    #   :both           -> scalar receiver: one Step keyed by the entity
-    #                      (entity branch); list receiver: ONE vector Step
-    #                      keyed by the reserved "Default" jobname with the
-    #                      receiver in the :list input (entity_list branch).
-    def entity_vector_job(mod, property, entity, arguments = {}, entity_options: nil,
-                          list_name: nil)
-      type = mod.name
-      defn = property_definition(type, property) || {}
-      args = arguments.merge(entity_identity_inputs(type, property))
-      entity_options = parse_entity_options(entity_options) if String === entity_options
-      # Entity options (organism etc.) are DECLARED annotation inputs of the task
-      # (property_task -> annotation_input), so they must travel as job inputs:
-      # the `entity`/`entity_list` helpers rebuild the receiver from
-      # inputs.to_hash, and without these values the rebuilt receiver loses its
-      # annotations (observed: organism nil for :both/:single; :array only worked
-      # because `entity_list` re-annotates the :list input directly).
-      args = args.merge(entity_options || {})
-      entity = annotate_receiver(mod, entity, entity_options, list_name)
-      # `:array` and `:both` are list-mode properties (their tasks take the :list
-      # input): any receiver executes ONE vector Step keyed by "Default".  Only
-      # `:single` fans out one Step per member.
-      vector = %w[both array].include?(defn['property_type'].to_s)
-
-      jobs = if vector && Array === entity
-               [mod.job(property.to_sym, 'Default', args.merge(list: entity))]
-             elsif vector
-               # Scalar receiver over a `:both` property runs through the same
-               # single vector Step shape (jobname `Default`) so identity and
-               # caching stay uniform; the wrapper unwraps the one-member result.
-               [mod.job(property.to_sym, 'Default', args.merge(list: annotate_receiver(mod, [entity], entity_options, list_name)))]
-             else
-               Array(entity).collect { |e| mod.job(property.to_sym, e, args) }
-             end
-      jobs
-    end
-
-    # Annotate a receiver with its entity type (the persistence contract):
-    # lists become AnnotatedArray entities of the module's type, scalars
-    # become annotated single entities, and named lists carry a `list`
-    # annotation naming their source so records can represent executions
-    # properly.  Entity options (e.g. organism) flow to Entity#setup so
-    # contained-array caching and list/singleton dispatch behave as Scout
-    # expects.
-    def annotate_receiver(mod, entity, entity_options = nil, list_name = nil)
-      entity_options = parse_entity_options(entity_options) if String === entity_options
-      entity_options = entity_options.merge(list: list_name.to_s) if list_name && entity_options
-      if Array === entity
-        mod.setup(entity, entity_options || {})
-      else
-        mod.setup(entity.to_s, entity_options || {})
-      end
-    end
-
-    def parse_entity_options(entity_options)
-      return entity_options if Hash === entity_options
-      require 'json'
-      JSON.parse(entity_options)
-    rescue JSON::ParserError
-      raise ScoutException, "entity_options must be a JSON object: #{entity_options.inspect}"
-    end
-
-
-    def run_entity_property(entity_type:, property:, entity:, arguments: {},
-                            entity_options: nil, update: false, list_name: nil,
-                            job: nil, agent: 'Cortex', timeout: nil)
-      job, jobs = entity_property_job(entity_type: entity_type, property: property,
-                                      entity: entity, arguments: arguments,
-                                      entity_options: entity_options, list_name: list_name)
-      jobs = Array === jobs ? jobs.compact : [jobs].compact
-      # List-mutation invalidation: a done property job older than the named
-      # list file it was computed from is stale and must be recomputed even
-      # without update:true.  update:true still force-cleans everything.
-      # A missing list file never triggers the blind clean (the task layer has
-      # already resolved the list and raised if it does not exist).
-      stale_list = if update || list_name.to_s.empty?
-                     nil
-                   else
-                     _e, _m, list_path = read_list(entity_type, list_name)
-                     File.exist?(list_path) ? list_path : nil
-                   end
-      jobs.each do |j|
-        j.clean if update || (stale_list && j.done? && Path.newer?(j.path, stale_list))
-      end
-
-      # The timeout bounds EXECUTION only (Step#run and, for fan-out
-      # receivers, the per-member loop): the invalidation pass above is
-      # bookkeeping and must not count against the budget.  A hit raises
-      # EntityPropertyTimeout; the interrupted Step stays status :error with
-      # no result file, so a later run recomputes at the same path.  Cache
-      # hits (done?) skip Step#run and are therefore never re-timed.
-      entity_property_with_timeout(entity_property_timeout(timeout)) do
-        jobs.each { |j| j.run unless j.done? }
-      end
-
-      defn = property_definition(entity_type, property) || {}
-      vector_run = %w[both array].include?(defn['property_type'].to_s)
-      scalar_receiver = !(Array === entity)
-
-      result = if vector_run
-                 # :both receivers (scalar or list) execute ONE vector Step whose
-                 # body already receives `entity`/`entity_list`; the loaded value
-                 # IS the answer.  A scalar receiver's body may return the value
-                 # for the one-member list as a one-element array: unwrap it.
-                 value = job.load
-                 value = value.first if scalar_receiver && Array === value && value.length == 1
-                 value
-               else
-                 values = jobs.collect(&:load)
-                 if scalar_receiver && values.length == 1
-                   values.first
-                 else
-                   values
-                 end
-               end
-
-      # Execution registry: the property Step stays the evidence producer; the
-      # record only references it.  list receivers also register the named
-      # list execution itself.
-
-      # Producer selection uses `vector_run` (property type), never
-      # `Array === job`, which cannot tell a one-element vector run from a
-      # fan-out; every record must point at a real Step.
-      if list_name
-        record_property_execution(entity_type: entity_type, property: property, receiver: "list:#{entity_type}_#{list_name}",
-                                  entity: nil, list_name: list_name, arguments: arguments || {},
-                                  defn: defn, update: update, producer: vector_run ? jobs.first : jobs.first, agent: agent)
-        member_job = vector_run ? ->(_i) { jobs.first } : ->(i) { jobs[i] }
-        members = Array(entity)
-        members.each_with_index do |member, i|
-          record_property_execution(entity_type: entity_type, property: property, receiver: member.to_s,
-                                    entity: member.to_s, list_name: list_name,
-                                    arguments: arguments || {}, defn: defn,
-                                    update: update, producer: member_job.call(i), agent: agent)
-        end
-      else
-        member_job = vector_run ? ->(_i) { jobs.first } : ->(i) { jobs[i] }
-        Array(entity).each_with_index do |member, i|
-          record_property_execution(entity_type: entity_type, property: property, receiver: member.to_s,
-                                    entity: member.to_s, list_name: nil,
-                                    arguments: arguments || {}, defn: defn,
-                                    update: update, producer: member_job.call(i), agent: agent)
-        end
-      end
-
-      primary = vector_run ? jobs.first : job
-
-      # A scalar receiver that executed as a ONE-MEMBER VECTOR (the :both list
-      # path) unwraps in the receipt exactly like the :single path does, so
-      # callers get the value and not [value] -- same convention the wrapper's
-      # `res[0] if Array === res && !(Array === self)` applies upstream.
-      result = result.first if vector_run && Array === result && result.length == 1 && scalar_receiver
-
-      [primary, result]
     end
 
     # Timeout (in seconds) bounding ONE entity property execution, or nil to

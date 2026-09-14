@@ -31,10 +31,26 @@ require 'Cortex/listing'
 #   lists.rb         named entity lists (<entity_type>/<list> + .meta)
 #   listing.rb       listing, search, bounded read
 #   entities.rb      entity property engine (+ tasks/entity.rb)
+#   types.rb         Cortex::Types (entity-type modules, identity inputs)
+#   properties_run.rb Cortex::Properties (run dispatch, address resolution,
+#                    the section 2.6 error envelope)
+#   receipt.rb       Cortex::Receipt (the section 2.7 run receipt)
+#   evidence.rb      Step-derived evidence scan (var/jobs .info sidecars)
+#   properties.rb    RETIRED registry, read-only history records
 #
 # Tasks are declared in lib/Cortex/tasks: conversation.rb (continue, brief),
 # listing.rb (list/search/read), artifact.rb (write/edit/rename/remove/move),
-# list.rb (entity lists), entity.rb (property lifecycle).
+# list.rb (entity lists), entity.rb (property lifecycle: define/update/
+# validate/remove/run + cortex_result resolution).
+#
+# The property subsystem (design/property-subsystem-redesign.md, implemented):
+# entity types are anonymous Workflow modules named exactly <Type>; a property
+# is a task carrying three defaultless definition-identity inputs, so every
+# result address embeds the (version, digest) of the definition that produced
+# it.  Addresses are <Type>/<property>/<label> (Step#short_path); receipts
+# are mechanical projections of the produced Step; the execution registry
+# var/cortex/properties/ is retired (history-only, nothing writes it) and
+# current evidence is the var/jobs Step tree itself.
 
 module Cortex
   extend Workflow
@@ -118,7 +134,8 @@ module Cortex
          :cortex_write_list, :cortex_read_list,
          :cortex_property_list, :cortex_property_read, :cortex_property_history,
          :cortex_property_validate, :cortex_property_define, :cortex_property_update,
-         :cortex_property_remove, :cortex_entity_property,
+         :cortex_property_remove,
+         :cortex_property_run, :cortex_result,
          :cortex_activity
 end
 
