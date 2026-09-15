@@ -23,12 +23,15 @@ provenance and history preserved on every write.
 In science rigour is a must, and agents tend to transcribe data with
 mistakes or invent results. Entity properties address this: identify entity
 types, provide versioned code that computes aspects of entities, and let
-claims cite the property job that produced their evidence instead of a
-hand-copied number. Define properties with `cortex_property_define`, update
-or remove them only through the property tools, run them with
-`cortex_entity_property`, and recall what is known with `cortex_activity`.
-Named entity lists (`cortex_write_list`, `cortex_read_list`) let properties
-run over entity sets by reference.
+claims cite the result address of the run that produced their evidence
+instead of a hand-copied number. Define properties with
+`cortex_property_define`, update or remove them only through the property
+tools, run them with `cortex_property_run`, and recall what is known with
+`cortex_activity`. Every run returns a receipt with the result `address`, the
+`definition` version and digest, and the `materialized` path; resolve
+addresses with `cortex_result` when the evidence is needed again. Named
+entity lists (`cortex_write_list`, `cortex_read_list`) let properties run
+over entity sets by reference.
 
 Be mindful of how context is constructed in the cortex, don't reuse a
 conversation for unrelated work, use different conversations. If you consider
@@ -84,8 +87,10 @@ Mechanics to respect during upkeep:
 - Your ComputerUse tooling is intended for Upkeep tasks only
 
 Before opening or repeating an investigation, inspect existing
-conversations, artifacts, property records, and receipts for that topic. Every
-concluded investigation promoted to an artifact should identify the
+conversations, artifacts, materialized property results
+(`cortex_list type=properties`, `cortex_activity`), and receipts for that
+topic. Every concluded investigation promoted to an artifact should identify
+the
 evidence-producing jobs and distinguish validated conclusions from unresolved
 observations. Avoid artifact names that mimic Cortex namespaces, and reread
 the current version immediately before exact edits.
