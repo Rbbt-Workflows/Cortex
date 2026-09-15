@@ -291,17 +291,24 @@ class TestCortexEntities < Test::Unit::TestCase
   # memoized (Persist.memory), so recompiling a same-named property into them
   # would keep the old body running.  Foreign Entity types are rejected; only
   # Cortex-managed (registered) modules are reused across generations.
+  # Step 3 update (design SS11 regime C): a pre-existing EntityWorkflow
+  # module named <Type> is ADOPTED, not rejected.  Defining a property on it
+  # compiles our definition into the adopted module, and a subsequent
+  # load_entity_type returns the SAME constant (the adopted module), no
+  # longer nil.  The rejection contract now covers only non-Entity constants
+  # and property-name collisions (see test_non_cortex_property_collision).
   def test_existing_entity_module_is_reused
     mod = Module.new
     mod.extend Entity
     mod.extend EntityWorkflow
     mod.name = 'ProbeExisting'
     Kernel.const_set(:ProbeExisting, mod) unless defined?(::ProbeExisting)
-    e = assert_scout_ex('foreign Entity module rejected') do
-      define('ProbeExisting', 'prop', body: 'entity.to_s')
-    end
-    assert_match(/already exists/, e.message)
-    assert_nil(Cortex.load_entity_type('ProbeExisting'))
+    define('ProbeExisting', 'prop', body: 'entity.to_s')
+    loaded = Cortex.load_entity_type('ProbeExisting')
+    assert_equal ::ProbeExisting, loaded,
+                 'a pre-existing EntityWorkflow module is adopted, not rejected'
+    assert loaded.instance_methods.include?(:prop),
+           'the Cortex definition is compiled into the adopted module'
   end
 
   # A name that already exists on the module and is NOT Cortex-owned is a

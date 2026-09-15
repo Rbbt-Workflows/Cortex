@@ -228,9 +228,17 @@ module Cortex
     # Normalize a Scout input type reference to a symbol (the form
     # Workflow#input / property_task expect).
     def entity_type_sym(type)
-      type.to_s.to_sym
+      # Keep :string/:tsv/:json/... workflow types untouched; anything else
+      # (e.g. an undocumented 'raw' result_type on a foreign store) becomes
+      # :string so property_task never produces an unregistered extension.
+      t = type.to_s.to_sym
+      Workflow::TYPE_EXTENSIONS.key?(t) ? t : :string
     end
 
+    # Build the label a Step would get for this property/receiver WITHOUT
+    # running anything: mirrors Workflow#job label logic (provided non-default
+    # inputs => Default_<md5>).  Used to keep the foreign two-roots semantics:
+    # a label with an OLD-root directory keeps replaying there.
     # Normalize an argument spec into the canonical hash form.
     def entity_argument!(arg)
       case arg
@@ -474,17 +482,63 @@ module Cortex
     # variables on the entity, harmless) rather than raising.
     ENTITY_CONVENTIONAL_ANNOTATIONS = %i[organism].freeze
 
+    # ------------------------------------------------------------------
+    # Job-root placement (design §11 placement fix, anomaly A)
+    # ------------------------------------------------------------------
+    # Adopted foreign modules and fresh anonymous modules must root their
+    # property jobs at the CHECKOUT var/jobs/<Type>/..., never at
+    # {PWD}/var/jobs (the :current map is PWD-dependent: a run from
+    # var/cortex/entities mis-rooted results INSIDE the entities namespace).
+    # The root is therefore resolved ONCE, from the Cortex project anchor
+    # (SCOUT_CHAT_DIR / config / repo climb -- see path_maps.rb chat_anchor),
+    # and pinned as a literal prefix map so map-order traversal cannot
+    # reinterpret it under a different CWD.
+    #
+    # Two-roots semantics are preserved: `Path#find` is first-existing-wins
+    # across map order, so a label whose directory already exists under an
+    # earlier map (e.g. ~/.scout for foreign types with pre-change evidence)
+    # keeps replaying there. Only NEW labels root here.
+    def entity_jobs_root
+      # Placement (design §11.4): checkout-rooted regardless of process CWD.
+      # A pinned @entity_root (the documented scratch hook the hermetic test
+      # suite uses) is already the 'var' root, so jobs hang directly off it;
+      # otherwise anchor on the chat/checkout root (never PWD), falling back
+      # to this file's repository when no anchor is configured.
+      @entity_jobs_root ||= begin
+        pinned = Cortex.instance_variable_defined?(:@entity_root) &&
+                 Cortex.instance_variable_get(:@entity_root)
+        if pinned
+          # The documented scratch hook: @entity_root IS the 'var' root
+          # ('Path.setup(var)' in the hermetic tests, where :current is
+          # remapped to the scratch libdir).  Resolve it through the
+          # process path_maps so the anchor carries the same ABSOLUTE
+          # scratch prefix the pre-change `default: :current` mechanism
+          # produced (<scratch-lib>/var/jobs/...); an absolute pin is used
+          # verbatim.  A relative literal would double the path in follow().
+          root = Path.setup(pinned.to_s)['jobs']
+          unless root.to_s =~ %r{\A/}
+            resolved = Path.path_maps[:current]
+            resolved = Path.follow(root, resolved, :current) if resolved
+            root = Path.setup(resolved.to_s) if resolved && resolved.to_s =~ %r{\A/}
+          end
+          root
+        else
+          anchor = (Cortex.project_anchor rescue nil)
+          anchor = File.expand_path('../../..', __FILE__) if anchor.nil?
+          Path.setup(anchor.to_s)['var']['jobs']
+        end
+      end
+    end
+
     def entity_new_module(type)
       mod = Module.new
       mod.extend EntityWorkflow
       mod.name = entity_type! type
       mod.entity_name = Misc.snake_case(type).downcase
 
-      # ScoutCoder: By default new entities generate property jobs in the
-      # current directory
-      directory_path = Scout.var.jobs[mod.name]
-      directory_path.path_maps = directory.path_maps.merge(default: :current)
-      mod.directory = directory_path
+      # Placement pin (design §11.4): see pin_module_directory! -- the one
+      # implementation both the managed and adopted paths share.
+      pin_module_directory!(mod, type)
       ENTITY_CONVENTIONAL_ANNOTATIONS.each do |annotation|
         next if mod.annotations.include?(annotation)
         mod.annotation annotation
@@ -721,15 +775,42 @@ end
       # Fresh anonymous generations are the only reliable envelope; tell the
       # caller instead of silently serving stale code.
       root_const = (Kernel.const_get(type) rescue nil)
-      if entity_modules(type)['managed'].nil? && candidate.equal?(root_const)
-        raise ScoutException,
-              "Entity module #{type} already exists as a pre-existing " \
-              'constant. Cortex cannot adopt foreign Entity modules (their ' \
-              'task bodies are memoized and cannot be recompiled reliably). ' \
-              'Rename the Cortex entity type or remove the constant.'
+
+      # RELAXED ADOPTION (design §11, v16): a pre-existing EntityWorkflow
+      # module (e.g. Security from the Finances workflow) IS adopted when the
+      # engine can recompile it safely.  Scout memoizes Task objects per
+      # module+name through Persist.memory keyed `Task job <task>`
+      # (scout-gear lib/scout/workflow/task.rb:47), so redeclaring a
+      # same-named task on the LIVE module would replay the old Step.  Two
+      # safeguards make adoption sound:
+      #
+      #   1. define/update evict every Workflow.job_cache key prefixed
+      #      `Task job <property>` (see evict_task_job_cache! below), so the
+      #      next job call builds a fresh Step for the new body;
+      #   2. the `_cortex_definition*` identity inputs move the result path,
+      #      so old and new evidence never share a label.
+      #
+      # Adoption also pins the module's job directory to the checkout root
+      # (entity_jobs_root) so adopted-type evidence lands at
+      # var/jobs/<Type>/... like every managed type; pre-existing labels
+      # elsewhere keep replaying there (first-existing-wins, Path#find).
+      if entity_module?(candidate, :workflow)
+        unless entity_module?(candidate)
+          candidate.extend Entity
+          candidate.entity_name ||= Misc.snake_case(type).downcase
+        end
+        pin_module_directory! candidate, type
+        entity_modules(type)['adopted'] = candidate
+        entity_modules(type)['managed'] = candidate unless entity_modules(type)['managed']
+        return candidate
       end
 
-      candidate.extend EntityWorkflow unless entity_module?(candidate, :workflow)
+      raise ScoutException,
+            "Entity module #{type} already exists as a pre-existing " \
+            'constant but is neither an Entity nor an EntityWorkflow ' \
+            'module; it cannot be adopted or extended. Rename the Cortex ' \
+            'entity type or remove the constant.'
+
       candidate
     end
 
@@ -746,6 +827,72 @@ end
       entity_modules(type)['managed']
     end
 
+    # Pin a module's job directory to the checkout-rooted jobs root
+    # (entity_jobs_root) without touching the process-wide
+    # Workflow.directory path-map Hash (design §11 D1: the @path_maps Hash
+    # is shared by reference, so a copy is merged instead).
+    def pin_module_directory!(mod, type)
+      # entity_jobs_root may return a plain String when the scratch hook
+      # resolved through Path.follow (annotate is lost across the String
+      # return).  Re-setup so the Path annotations (path_maps, pkgdir)
+      # survive; [:name] then produces an annotated child Path.
+      root = entity_jobs_root
+      root = Path.setup(root.to_s) unless Path === root
+      anchor = File.expand_path(root.to_s)
+      # ScoutCoder: a path_maps VALUE is a template, not a literal
+      # directory.  Path.follow appends '{PATH}' to a placeholder-free map
+      # (scout-essentials lib/scout/path/find.rb:52) and substitutes
+      # {TOPLEVEL}/{SUBPATH} from the Path being resolved (:62-63), so a
+      # map pinned to the ABSOLUTE directory while the Path itself already
+      # carries that prefix concatenates the prefix twice (<dir>/<dir>).
+      # The correct pin keeps the Path RELATIVE (the module name: TOPLEVEL
+      # expands to it) and pins the map to
+      # <absolute jobs root>/{TOPLEVEL}/{SUBPATH}, which follow(:default)
+      # expands to exactly <root>/<name>, never re-enters Path.map_order,
+      # and is therefore CWD-independent (design §11.4: the pre-change
+      # `default: :current` resolved through {PWD} and mis-rooted under a
+      # non-root CWD -- anomaly A).
+      directory_path = Path.setup(mod.name || type)
+      directory_path.path_maps = directory_path.path_maps
+                                   .merge(default: File.join(anchor, '{TOPLEVEL}', '{SUBPATH}'))
+      mod.directory = directory_path
+      mod
+    end
+
+    # Evict every Workflow.job_cache entry whose key starts with
+    # `Task job <property>`.  Scout memoizes Task objects per module+name
+    # (Persist.memory; scout-gear lib/scout/workflow/task.rb:47, key
+    # `Task job #{name}:<md5 of {workflow, task, id, provided_inputs}>`);
+    # the id component covers every entity receiver, so redeclaring a task
+    # on a live (adopted) module must drop ALL of them or the next call
+    # replays the old Step.  Called after every define AND update, on every
+    # module kind (managed anonymous and adopted foreign).
+    # ScoutCoder: the Task job memo key is NOT the literal name passed to
+    # Persist.memory -- Persist.persistence_path sanitizes it through
+    # TmpFile.tmp_for_file (spaces -> '_', '/' -> '·', then ':' + md5 of the
+    # `other:` identity hash appended; scout-essentials persist.rb:22-30,
+    # tmpfile.rb:109-124).  So "Task job mark" materializes as the job_cache
+    # key "var/cache/persistence/Task_job_mark:<md5({workflow, task, id,
+    # provided_inputs})>" (scout-gear workflow/task.rb:47).  A prefix match on
+    # the literal "Task job <property>" therefore matches NOTHING (step-4
+    # probes e1/e2).  The true invalidation mechanism is the _cortex_definition*
+    # identity inputs: a definition change alters provided_inputs, which alters
+    # the memo md5 AND the Step address, so stale replay is impossible even
+    # WITHOUT eviction.  Eviction is same-process memory hygiene only
+    # (Workflow.job_cache is a plain process-local Hash, workflow.rb:21-23):
+    # it drops memo entries that can no longer be hit so the Hash does not
+    # grow monotonically in long-lived processes.  The ':' terminator matters:
+    # without it "Task_job_mark" would also match "Task_job_marker:...".
+    def evict_task_job_cache!(property)
+      prefix = ("Task job " + property.to_s).gsub(/\s/, '_') + ':'
+      evicted = []
+      Workflow.job_cache.keys.each do |key|
+        next unless key.to_s.include?(prefix)
+        evicted << Workflow.job_cache.delete(key)
+      end
+      evicted.length
+    end
+
     # ------------------------------------------------------------------
     # Loading a type (compiler entry point)
     # ------------------------------------------------------------------
@@ -757,22 +904,80 @@ end
 
       if definitions.empty?
         managed_entity_registry.delete type
-        #return nil
+        # Zero-definition types must still LOAD (design §11 regime A): a
+        # pre-existing EntityWorkflow constant with no Cortex definitions
+        # resolves to the adopted foreign module so plain-method execution
+        # can run on it.  Only when no adoptable constant exists either is
+        # the type genuinely unknown.
+        begin
+          candidate = Kernel.const_get(type)
+          return resolve_entity_module type if entity_module?(candidate)
+        rescue NameError
+        end
+        return nil
       end
 
       registry = entity_modules type
       existing = registry[digest]
       return existing if existing
 
+      # RELAXED ADOPTION (design v16 SS11): an adoptable pre-existing
+      # EntityWorkflow constant is ALWAYS the compile target when it exists
+      # -- for foreign-managed definitions (e.g. Observation/probe in a
+      # read-only foreign map) AND for Cortex-managed ones (regime C
+      # define-over-adopted).  The live module must be the one that runs,
+      # not a fresh anonymous twin.  Two sub-cases:
+      #
+      #   * FOREIGN-managed: every manifest property is ALREADY declared on
+      #     the live module (as an entity task/property).  Recompiling would
+      #     collide (entity_collision_check!), and the live module's own
+      #     task objects are the authoritative code -- short-circuit.
+      #   * CORTEX-managed (regime C): at least one manifest property is
+      #     NOT declared on the live module -- fall through to the compile
+      #     loop, which compiles our definition into the adopted module.
+      #     The Task-memoization hazard on re-declaration is handled by
+      #     eviction (define/update call evict_task_job_cache!) plus the
+      #     `_cortex_definition*` identity inputs that move result paths.
       begin
-        return Kernel.const_get(type)
-      rescue
+        candidate = Kernel.const_get(type)
+        if entity_module?(candidate, :workflow)
+          declared = ((candidate.tasks.keys rescue []) +
+                      (candidate.properties.keys rescue []) +
+                      candidate.instance_methods(false)).collect(&:to_s).uniq
+          # Foreign-managed ONLY: every manifest property is already declared
+          # on the live module AND none of them is Cortex-owned (cortex_owned?
+          # = we wrote its definition).  A Cortex-owned property that appears
+          # declared may be a STALE compile from an older version of the body
+          # (regime C update): its manifest is authoritative, so fall through
+          # and recompile (eviction + identity inputs make that sound).
+          return resolve_entity_module(type) if definitions.all? do |d|
+            declared.include?(d[:property].to_s) &&
+              !cortex_owned?(type, d[:property])
+          end
+        end
+      rescue NameError
       end
 
-      # Fresh generation: redefining same-named tasks in a live module is
-      # unreliable (Persist.memory memoizes Task objects), so each manifest
-      # digest gets its own anonymous module and the registry re-points.
-      mod = entity_new_module type
+      # Regime C (design v16 SS11): when the manifest holds Cortex-managed
+      # definitions AND an adoptable pre-existing EntityWorkflow constant
+      # exists, ADOPT that live module and compile the definitions into it
+      # (define-over-adopted must serve the new body).  The Task-object
+      # memoization hazard is handled by eviction: define/update evict every
+      # `Task job <property>` Workflow.job_cache key (all ids) so the next
+      # job call builds a fresh Step, and the `_cortex_definition*` identity
+      # inputs move the result path so old/new evidence never share a label.
+      adoptable = begin
+        candidate = Kernel.const_get(type)
+        entity_module?(candidate, :workflow)
+      rescue NameError
+        false
+      end
+
+      # Regime C: compile into the ADOPTED live module, not an anonymous
+      # twin.  The Task-memoization hazard is handled by eviction (see
+      # evict_task_job_cache!, called by define/update) plus the identity
+      # inputs that move result paths.
+      mod = adoptable ? resolve_entity_module(type) : entity_new_module(type)
 
       ordered = entity_topo_sort(definitions)
       # A property's identity inputs (definition/version/digest) must be
@@ -891,7 +1096,16 @@ end
       # Type resolution up front: a pre-existing non-Entity constant with this
       # name (or a foreign Entity module we cannot recompile) must fail at
       # definition time, not silently at load time.
-      resolve_entity_module type
+      resolved = resolve_entity_module type
+
+      # Collision guard on the RESOLVED module (design SS11 regime C + the
+      # pre-existing entity_collision_check! semantics): relaxed adoption
+      # must never silently REPLACE a foreign instance method on an adopted
+      # module -- a name occupied by anything that is not Cortex-owned is a
+      # hard error.  For managed anonymous types the resolved module is
+      # fresh, so the check is a no-op; it only bites on adopted modules
+      # (e.g. defining `is_fee?` over the Finances Security demo surface).
+      entity_collision_check! resolved, type, property
 
       # Graph check first (missing dependency / cycle), then the staging
       # compile; both BEFORE anything is written.
@@ -925,8 +1139,16 @@ end
       entity_meta_write! type, property, meta
 
       # The active generation is stale by construction; drop the cache so the
-      # next load_entity_type compiles a fresh module.
+      # next load_entity_type compiles a fresh module.  Eviction (SS11.5):
+      # the declared task's memoized Step must go too, or the next run on an
+      # adopted (live) module replays the old Step even though the identity
+      # inputs moved the path.
       entity_modules(type).delete 'managed'
+      evict_task_job_cache! property
+      # Record ownership at define time (not only at load/compile time) so a
+      # same-process update never trips the collision guard above.
+      managed_entity_ownership << [type, property]
+      managed_entity_ownership.uniq!
       { address: "#{type}/#{property}", version: 1, digest: digest }
     end
 
@@ -1062,7 +1284,15 @@ end
                     )
       entity_meta_write! type, property, meta
 
+      # SS11.5 eviction: the update changes the body, so every memoized
+      # `Task job <property>` Step must be dropped or the next run on a live
+      # (adopted) module replays the old body even at the new identity path.
       entity_modules(type).delete 'managed'
+      evict_task_job_cache! property
+      # Ownership recorded at define time survives the update (same-pair
+      # re-registration is a no-op); the collision guard consults it.
+      managed_entity_ownership << [type, property]
+      managed_entity_ownership.uniq!
       { address: "#{type}/#{property}", version: new_version, digest: new_digest }
     end
 
@@ -1112,11 +1342,17 @@ end
                     )
       entity_meta_write! type, property, meta
 
-      # Delete the active body: an inactive property must not be resolvable.
+      # SS11.7 hygiene (amended): remove deletes the active BODY -- an
+      # inactive property must not be resolvable and must never be left
+      # orphaned (the anomaly-B asymmetry) -- while the meta sidecar is
+      # intentionally KEPT as the tombstone (active: false, removed: true),
+      # the contract asserted by test_remove_tombstones_and_preserves_history.
+      # History snapshots above preserve every prior version.
       body_path = entity_body_path type, property, write_map
       FileUtils.rm_f body_path
 
       entity_modules(type).delete 'managed'
+      managed_entity_ownership.delete [type, property]
       { address: "#{type}/#{property}", removed_version: current['version'].to_i + 1,
         version: current['version'].to_i + 1 }
     end

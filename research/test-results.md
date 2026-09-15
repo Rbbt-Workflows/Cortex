@@ -51,13 +51,16 @@ Coverage summary (each area is one or more test methods):
   (counter-file instrumentation: no recompute); `update: true` cleans and
   recomputes at the same path
 - **graph** — missing dependency raises; cycle raises
-- **namespace safety** — unrelated constant (plain module) is rejected;
-  foreign `Entity` module cannot be adopted (raises, actionable message);
-  name collision with a non-Cortex property raises; two entity types may
-  share a property name
-- **receipts** — exactly the 8 keys; `property_job` is a `String` (or
-  `Array` for a list) matching the module/task/entity path; result equals
-  the body output; `definition_version`/`definition_digest` match the meta
+- **namespace safety** — unrelated constant (plain module) is rejected
+  (SUPERSEDED for `EntityWorkflow` modules by design §11 adoption —
+  `research/impl-step11-foreign-adoption-validation.md`; only non-Entity
+  constants are still rejected); name collision with a non-Cortex
+  property raises; two entity types may share a property name
+- **receipts** — exactly the 8 keys (HISTORICAL; the current
+  `cortex_property_run` returns the §2.7 11-key envelope);
+  `property_job` is a `String` (or `Array` for a list) matching the
+  module/task/entity path; result equals the body output;
+  `definition_version`/`definition_digest` match the meta
 - **pagination** — `cortex_property_read` body pagination reports the next
   window; the suite covers the partial last page and reading at/past the end
   of a one-line body (`body lines 1-1 of 1`); the multi-page `# next: N`
@@ -102,6 +105,8 @@ transcript is [`example-run.md`](example-run.md). Summary:
    `{address: "Gene/test", version: 1, digest: …, defined: true}`
 2. `cortex_entity_property` for `Tp53` → receipt with exactly 8 keys,
    `result` from the body, `property_job` `Gene/test/Tp53_…`
+   (HISTORICAL: the current `cortex_property_run` returns the §2.7
+   11-key envelope)
 3. replay → identical `property_job` and result (cache hit, no new step)
 4. `update: true` → recomputed at the **same** path
 5. dependency variant: `Gene/raw_v` + `Gene/derived` (depends on

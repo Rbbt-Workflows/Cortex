@@ -90,24 +90,30 @@ class TestPlacementDefault < Test::Unit::TestCase
   end
 
   # ------------------------------------------------------------------
-  # The annotation itself: :default => :current on the module directory,
-  # and it survives repeated accesses (memoized Path, same object).
+  # The annotation itself (step 3, design §11.4): :default is pinned to a
+  # CONCRETE absolute template <jobs root>/{TOPLEVEL}/{SUBPATH} -- CWD
+  # independent, unlike the old symbolic :current.  It survives repeated
+  # accesses (memoized Path, same object) and every module build carries it.
   # ------------------------------------------------------------------
   def test_module_directory_annotation_is_current_and_persists
     mod = Cortex::Types.for(PLACEMENT_TYPE)
 
-    assert_equal :current, mod.directory.path_maps[:default],
-                 'entity_new_module annotates :default => :current'
+    pinned = mod.directory.path_maps[:default]
+    assert_match(%r{/var/jobs/\{TOPLEVEL\}/\{SUBPATH\}\z}, pinned.to_s,
+                 'entity_new_module pins :default to the absolute checkout jobs-root template')
+    assert_equal File.join(LIBDIR, 'var', 'jobs'),
+                 pinned.to_s.sub(%r{/\{TOPLEVEL\}/\{SUBPATH\}\z}, ''),
+                 'the pinned root is the scratch :current var/jobs (LIBDIR-anchored)'
 
     d2 = mod.directory
     assert_same mod.directory, d2,
                 'Workflow#directory memoizes: repeated access returns the same Path'
-    assert_equal :current, d2.path_maps[:default],
+    assert_equal pinned, d2.path_maps[:default],
                  'the annotation persists on the memoized Path object'
 
     # Fresh build (Types.for is fresh-unmemoized) carries it again.
     mod_b = Cortex::Types.for(PLACEMENT_TYPE)
-    assert_equal :current, mod_b.directory.path_maps[:default],
+    assert_equal pinned, mod_b.directory.path_maps[:default],
                  'every module build carries the annotation (no newness gate)'
   end
 
@@ -145,9 +151,9 @@ class TestPlacementDefault < Test::Unit::TestCase
 
     found = task_dir.find
     assert found.to_s.start_with?(File.join(LIBDIR, 'var', 'jobs', PLACEMENT_TYPE)),
-           "no candidate anywhere -> :default fallback roots at :current: #{found}"
-    assert_equal :current, found.where,
-                 'the fallback is annotated as coming from the :current map'
+           "no candidate anywhere -> :default fallback roots at the pinned jobs root: #{found}"
+    assert_equal :default, found.where,
+                 'the fallback comes from the pinned :default map (CWD-independent)'
   end
 
   # ------------------------------------------------------------------

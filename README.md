@@ -242,17 +242,33 @@ are a pure function of (definition identity, argument set, receiver,
 dependencies): identical inputs always land on the same address, and a
 done result replays from cache.
 
-Job placement: every entity module Cortex builds is annotated
-`directory.path_maps = directory.path_maps.merge(default: :current)`
-(`lib/Cortex/entities.rb`, `entity_new_module`), so property results root at
-the `:current` map — the workflow checkout (`./var/jobs/...`) rather than
-`~/.scout/var/jobs`. The annotation applies on every module build; it decides
-placement exactly when no `var/jobs/<Type>/...` directory exists anywhere in
-the map order (`Path#find` is first-existing-wins). Labels whose old-root
-directories already exist (e.g. foreign types with pre-change evidence under
-`~/.scout`) keep replaying there: same definition, two roots, both resolvable
-through `cortex_result`. Validated in
-`research/impl-step9-current-placement-validation.md`.
+**Foreign entity types are adopted, not rejected.** A pre-existing
+`EntityWorkflow` module (e.g. `Security` from an external workflow) is
+usable through `cortex_property_run` in three regimes: (A) no active
+Cortex definition → the plain method runs on the entity object and the
+receipt reports `definition: {version: 0, digest: null}` with no address
+(there is no Step); (B) an active definition (whatever wrote it) → the
+task path, a real Step with the 3-segment address; (C) define/update on
+the adopted module → the task path serving the NEW body at a moved
+address. Failures surface as structured error envelopes, never a silent
+fallback; non-Entity pre-existing constants are still rejected.
+Validation: `research/impl-step11-foreign-adoption-validation.md`.
+
+**Invalidation one-liner.** A definition change invalidates through the
+definition-identity inputs, which are digested into BOTH the Task memo
+key and the result address (new key + new address on every change, so
+stale replay is impossible); the eviction hook called after define/
+update is same-process memory hygiene only.
+
+Job placement: every entity module Cortex builds — managed and adopted —
+has its job directory PINNED to the checkout `var/jobs/<Type>/...`
+(`pin_module_directory!`, an absolute template), so placement is
+independent of the process CWD. `Path#find` is still first-existing-wins,
+so labels whose old-root directories already exist (e.g. foreign types
+with pre-change evidence under `~/.scout`) keep replaying there: same
+definition, two roots, both resolvable through `cortex_result`.
+Validated in `research/impl-step9-current-placement-validation.md` and
+`research/impl-step11-foreign-adoption-validation.md`.
 
 Discipline: never transcribe numerical evidence when a property can return
 it — claims and artifacts should cite the address that produced their

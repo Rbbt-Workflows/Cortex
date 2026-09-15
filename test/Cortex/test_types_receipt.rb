@@ -180,16 +180,17 @@ class TestCortexTypes < Test::Unit::TestCase
     assert_equal 'Tp53-b2/d', down2.load
   end
 
-  # §3 rule 6: an anonymous module named exactly <Type> roots jobs at
-  # var/jobs/<Type>/ (probe_root mechanics, under the scratch root).
+  # §3 rule 6 (step 3 update, design §11.4): an anonymous module named
+  # exactly <Type> roots jobs at var/jobs/<Type>/ under the CHECKOUT
+  # jobs root (LIBDIR-anchored, CWD-independent), never under the Cortex
+  # workflow dir.  The address grammar assertion is authoritative.
   def test_anonymous_module_roots_jobs_at_var_jobs_type
     define('Step2A', 'plain', body: 'entity.to_s')
     mod = Cortex.load_entity_type('Step2A')
     assert_equal 'Step2A', mod.name
-    assert_equal 'var/jobs/Step2A', mod.directory.to_s
     job = build_job('Step2A', 'plain', 'Tp53')
     job.run
-    assert_match(%r{/tmp/entity_test_var/user/var/jobs/Step2A/plain/}, job.path.find.to_s)
+    assert_match(%r{#{LIBDIR}/var/jobs/Step2A/plain/}, job.path.find.to_s)
     refute File.exist?(File.join(USERDIR, 'var', 'jobs', 'Cortex', 'plain')),
            'jobs are NOT rooted under the Cortex workflow dir'
   end

@@ -57,53 +57,88 @@ ext:       .tsv | .json | .yaml | .marshal           # TYPE_EXTENSIONS
 - Each dependency Step is digested via its ADDRESS (with its embedded
   hash) into the downstream hash: identical arguments over different
   upstream evidence yield different downstream addresses.
-- `<Type>` modules set no directory of their own; their `directory`
-  falls back to `Workflow.directory[<Type>]` (Scout's default jobs
-  root), so the result tree is the engine's own tree — with one
-  deliberate placement annotation, see "Job placement" below.
+- `<Type>` modules get their `directory` PINNED to the checkout jobs
+  root at build time (see "Job placement" below), so the result tree is
+  the engine's own tree regardless of the process CWD.
 
-## Job placement (`:default => :current`)
+## Job placement (checkout-rooted pin)
 
 Every entity module built by `Cortex.entity_new_module`
-(lib/Cortex/entities.rb) is annotated
-`mod.directory.path_maps[:default] = :current`, so property results
-root at the `:current` map — the workflow checkout (`./var/jobs/...`,
-the process PWD under exec/bwrap execution) rather than
-`~/.scout/var/jobs`. Motivation: the checkout tree is mounted in the
-ComputerUse execution sandbox; the home tree is not, so before the
-change agents could not read result files from scripts.
+(lib/Cortex/entities.rb) — managed anonymous AND adopted foreign — has
+its `directory` pinned through `pin_module_directory!` to
+`<checkout>/var/jobs/{TOPLEVEL}/{SUBPATH}`, an ABSOLUTE template that
+`follow(:default)` expands to exactly `<checkout>/var/jobs/<Type>`. The
+root is resolved ONCE from the Cortex project anchor
+(`entity_jobs_root`), never from the process PWD, so a run from any CWD
+roots at the checkout (a run with CWD `var/cortex/entities` still roots
+at `var/jobs/<Type>/...`, not inside the entities namespace). History:
+the earlier `:default => :current` annotation rooted at `{PWD}/var/jobs`
+— anomaly A, see
+`research/impl-step11-foreign-adoption-validation.md`.
 
-Mechanics (all engine-owned, validated in
-`research/impl-step9-current-placement-validation.md`):
+Motivation: the checkout tree is mounted in the ComputerUse execution
+sandbox; the home tree is not, so agents can read result files from
+scripts. Mechanics (validated in
+`research/impl-step9-current-placement-validation.md` and, for the
+checkout pin, `research/impl-step11-foreign-adoption-validation.md`):
 
-- The annotation runs on EVERY module build (`Types.for`,
+- The pin runs on EVERY module build (`Types.for`,
   `resolve_entity_module`, `load_entity_type`, `entity_stage_compile`);
-  there is no newness gate. `Workflow#directory` memoizes
-  (`@directory ||= Workflow.directory[name]`, scout-gear
-  definition.rb:63-66), so it persists across accesses and propagates
-  by shared-Hash reference to task directories joined afterwards.
-- It decides placement exactly when NO `var/jobs/<Type>/...` candidate
-  exists anywhere in map order: `Task#job` resolves through
-  `path.find` (scout-gear workflow/task.rb:134-138) and `Path#find` is
-  FIRST-EXISTING-WINS across map order
-  (scout-essentials path/find.rb:265-271), falling back to
+  there is no newness gate. It merges a PRIVATE `path_maps` copy
+  (`directory.path_maps.merge(default: ...)`), so the process-wide
+  `Workflow.directory` Hash is never mutated — this closes defect D1
+  of the `:current` era, where other workflow modules built later in
+  the same process inherited the entity placement
+  (`tmp/placement-step2.out` probes b1/b2/b3).
+- The absolute template never re-enters `Path.map_order`, so placement
+  is CWD-independent. `Path#find` is still FIRST-EXISTING-WINS across
+  map order (scout-essentials path/find.rb:265-271), falling back to
   `follow(:default)` only when nothing exists (find.rb:273).
 - Consequence (split evidence): labels whose old-root directories
   already exist — e.g. foreign types with pre-change evidence under
   `~/.scout` — keep replaying at the old root (first-existing-wins).
   Same definition, two roots; both resolve through `cortex_result`,
   which is root-independent.
-- Known defect D1 (reported, not fixed): the annotation mutates the
-  `@path_maps` Hash shared by reference with `Workflow.directory`, so
-  any OTHER workflow module whose directory Path is computed after an
-  entity build in the same process defaults to `{PWD}/var/jobs` instead
-  of `~/.scout/var/jobs`. Smallest fix: annotate a private copy
-  (duplicate the hash before setting `[:default]`). Evidence:
-  `tmp/placement-step2.out` probes b1/b2/b3.
-- Guard test: `test/Cortex/test_placement_default.rb` (4 tests, 14
-  assertions) pins the annotation, real-run placement under the scratch
-  `:current` root, the `follow(:default)` fallback, and the
+- Guard test: `test/Cortex/test_placement_default.rb` pins the absolute
+  pin (and its persistence across builds), real-run placement under the
+  scratch root, the `follow(:default)` fallback, and the
   first-existing-wins boundary.
+
+## Foreign entity adoption (three regimes)
+
+A pre-existing `EntityWorkflow` module (e.g. `Security` from an external
+workflow) is **adopted**: `resolve_entity_module` extends it with
+`Entity` when needed, registers it under the type, and pins its job
+directory like any managed module. A pre-existing constant that is NOT
+an Entity/EntityWorkflow module stays a hard `ScoutException` (rule
+(b): a plain constant must never be shadowed or extended). A foreign
+type with ZERO Cortex definitions still loads (`load_entity_type`
+returns the adopted module); the type is unknown only when no adoptable
+constant exists either.
+
+`cortex_property_run` classifies the regime BEFORE job building:
+
+| Regime | Condition | Execution | Receipt |
+|---|---|---|---|
+| A — plain method | no active Cortex definition on an adoptable module | `receiver.send(property, ...)` on the entity object | same envelope, `definition: {version: 0, digest: null}`, `address`/`result_kind`/`status`/`materialized`/`info_path` null, `receiver` = entity id, `value` = raw return |
+| B — task path | active Cortex definition (any origin) | build_jobs/execute_jobs, real Step | §2.7 11-key envelope (below) |
+| C — define over adopted | `cortex_property_define`/`_update` on the adopted module | task path | §2.7 receipt with the NEW definition identity, served at a MOVED address |
+
+- Regime A arguments rule: an empty Hash passes NOTHING; a non-empty
+  Hash binds via `Method#parameters` — kwargs for `:key`/`:keyreq`, one
+  positional Hash for a positional parameter, else `ParameterException`
+  (verdict `argument_error`).
+- Named lists: regime A executes members individually and returns ONE
+  fallback receipt per member (tagged `entity_list`), preserving the
+  `failed_members`/`total_members` counting; regimes B/C fan out as
+  usual.
+- Failures are never silently swallowed into a fallback: regime-B
+  input-validation/build/execute failures and regime-A
+  `NoMethodError`/`ArgumentError` both surface as the §2.6 error
+  envelope.
+- Defining on an adopted module must not silently REPLACE a foreign
+  instance method: a property name occupied by anything that is not
+  Cortex-owned is a hard error (ownership set).
 
 ## Definition store (unchanged locations, one rename)
 
@@ -181,6 +216,19 @@ objects, so in-place redeclaration keeps running the first body).
 declared. Bodies are compiled from the definition file path so syntax
 errors and backtraces cite the `.rb`.
 
+The redeclaration memoization hazard is NEUTRALIZED for the task path by
+the identity inputs, not by rebuilding the module: the three
+`_cortex_definition*` inputs are merged into the SAME `arguments` hash
+that becomes the Task memo key's `provided_inputs` (scout-gear
+`workflow/task.rb:47`), so every definition change yields a NEW memo
+key and a NEW result address — the stale memo entry simply never
+matches. define/update additionally call `evict_task_job_cache!`
+(prefix `Task_job_<property>:`), which is same-process memory hygiene
+only: `Workflow.job_cache` is a plain process-local Hash, so eviction
+matters for long-lived processes, never for correctness (step-4 probes
+E1/E2, `tmp/step4-probes/VERDICT.md`, quoted in
+`research/impl-step11-foreign-adoption-validation.md`).
+
 ## Body contract
 
 Arbitrary trusted Ruby executing in the task body: `entity` /
@@ -230,7 +278,8 @@ only.
 | `define` | refuses if an active property exists; stages + compiles in a scratch module; optional smoke; writes body then meta; version 1 |
 | `update` | requires `expected_version`; snapshots to `.history/NNNNNN.{rb,json}`; omitted fields keep their value; bumps version |
 | `validate` | compile-only or compile+smoke; smoke ALWAYS `clean: true` in a fresh scratch directory (a previous run's error text is structurally unobservable); never mutates the store; staging includes the type's manifest so dependent candidates resolve their deps |
-| `remove` | requires version match; tombstones meta; deletes the active `.rb`; history preserved; address redefinable |
+| `remove` | requires version match; deletes the active `.rb` and KEEPS the meta tombstone (the removal record — `active: false`); drops the ownership entry so the module is re-adoptable; never leaves an orphaned body; history preserved; address redefinable |
+| `define` over an orphaned body (body without `.meta`) | treats the body as absent: version 1 with fresh meta (the orphan carries no identity, so nothing to version-conflict with) |
 | `history` | compact view of `.history` + `versions` |
 
 ## Evidence and the retired registry
@@ -287,7 +336,8 @@ and no sandboxing is claimed. Same trust boundary as any workflow task.
   `test_property_tools.rb` (tool contracts),
   `test_registry_retirement.rb` (no-write guard, activity rewiring,
   migration, address purity), `test_property_history.rb` (definition
-  store + legacy reads), `test_worked_example.rb` (the §10 walkthrough).
+  store + legacy reads), `test_worked_example.rb` (the §10 walkthrough),
+  `test_foreign_entity_adoption.rb` (regimes A/B/C, T1–T10).
 - Placement guard: `test_placement_default.rb` (annotation + real-run
   rooting under the scratch `:current` root, `follow(:default)`
   fallback, first-existing-wins boundary).
@@ -311,3 +361,7 @@ and no sandboxing is claimed. Same trust boundary as any workflow task.
   **body-executes-under-the-new-engine** via a scratch twin, not
   in-place: the chat harness's checkout mount is not visible to the
   test sandbox. Recorded in `research/impl-step6-worked-example.md`.
+- Real-workflow foreign adoption (the `Finances::Security` demo) is
+  verified only through a minimal in-process stand-in with the same
+  contract; the real Finances workflow is absent from this machine
+  (`research/impl-step11-foreign-adoption-validation.md`, open item).

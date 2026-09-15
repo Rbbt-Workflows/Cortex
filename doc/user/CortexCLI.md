@@ -41,6 +41,15 @@ dropping in one more script whose basename is the task name without the
   task name, with or without the `cortex_` prefix).
 * `--help` renders the task documentation as the command documentation, per
   the design intent of the suite.
+* `scout task` does not exist on this build — use
+  `scout workflow task Cortex <task> ...` or the `scout cortex`
+  subcommands.
+* Running `scout workflow task Cortex ...` from the Cortex repo root can hit
+  a workflow discovery/autoinstall trap (`Workflow Cortex not found` → a
+  GitHub 404). Workaround: run from a scratch workflows directory
+  containing a symlink to the checkout (see `tmp/step6-cli/README.md`).
+* The `:json` projection stringifies plain-path booleans (`"false"`, not
+  `false`); the raw value stays a real boolean in the receipt.
 
 ## Testing
 

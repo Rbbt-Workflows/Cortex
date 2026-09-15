@@ -69,7 +69,12 @@ module Step5Helpers
   end
 
   def assert_32hex_label(label)
-    assert_match(/\A[A-Za-z0-9_.:-]+_[0-9a-f]{32}\z/, label, label.inspect)
+    # Step 3: structured result kinds keep their TYPE_EXTENSIONS suffix in
+    # Step#name and therefore in the address (design sec2 vocabulary table:
+    # 'address file extension (.tsv, .json, ...) or its absence'). The
+    # authoritative content of this assertion -- the 32-hex identity digest
+    # in the label -- is unchanged.
+    assert_match(/\A[A-Za-z0-9_.:-]+_[0-9a-f]{32}(?:\.[A-Za-z0-9]+)?\z/, label, label.inspect)
   end
 end
 

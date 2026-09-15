@@ -96,7 +96,7 @@ executable definition found in two distinct physical locations raises in
 `property_definition`, `load_entity_type`, and the manifest builder. Two
 copies of code at one address must never be silently merged.
 
-## 9. Foreign `Entity` modules are not adopted
+## 9. Foreign `Entity` modules are not adopted (SUPERSEDED by §11 adoption)
 
 The design allowed reusing an existing Entity module after a compatibility
 check. Probes showed the check is not sound: a module whose tasks were
@@ -106,13 +106,20 @@ foreign `Entity` modules with an actionable message (rename the type or
 remove the constant), while a plain non-Entity constant is likewise
 rejected. Name collisions with non-Cortex properties raise (ownership set).
 
+**SUPERSEDED (design §11, relaxed adoption, 2026-09-14/15):** a
+pre-existing `EntityWorkflow` module IS now adopted; only NON-Entity
+constants are still rejected, and the memoization hazard is neutralized
+by the `_cortex_definition*` identity inputs (new memo key + new
+address on every definition change; eviction is same-process hygiene
+only). See `research/impl-step11-foreign-adoption-validation.md`.
+
 ## 10. `entity_property` demonstrator removed
 
 The old task's `entity_type` input carried entity *options* (not a type
 name), so no clean alias to `cortex_entity_property` exists. It was deleted
 rather than kept as a broken alias; README documents the replacement.
 
-## 11. Task receipts
+## 11. Task receipts (SUPERSEDED by the §2.7 11-key receipt)
 
 `cortex_entity_property` returns exactly the 8 keys
 `{entity_type, entity, property, arguments, definition_version,
@@ -122,6 +129,14 @@ attached: the producing step is the provenance. Note for replay: the
 workflow task itself is content-addressed on its inputs, so an identical
 call replays the receipt from cache (see `tmp/e2e_entities.rb`, which cleans
 the workflow job to re-execute while the property job stays cached).
+
+**SUPERSEDED (subsystem redesign, §2.7):** the current task is
+`cortex_property_run` and its receipt is the 11-key envelope
+`{entity_type, property, receiver, arguments, definition:{version,
+digest}, address, result_kind, status, value, materialized:{path,bytes},
+info_path}`. Regime-A runs on adopted foreign types use the same envelope
+with `definition: {version: 0, digest: null}` and null
+`address`/`materialized`/`info_path`.
 
 ## 12. Two pre-existing test failures fixed in the tests
 

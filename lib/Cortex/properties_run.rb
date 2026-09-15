@@ -134,31 +134,19 @@ module Cortex
 
         mod = Cortex.load_entity_type(type)
         raise ScoutException,
-              "No active entity properties for type #{type}: define one with " \
-              'cortex_property_define first' if mod.nil?
+              "Unknown entity type #{type}: no Cortex definitions and no " \
+              'adoptable EntityWorkflow constant with that name' if mod.nil?
 
-        begin
-          defn = Cortex.property_definition(type, property)
-          raise ScoutException,
-            "Entity property #{type}/#{property} is not active. Active: " \
-            "#{Cortex.property_definitions(type).collect { |d| d[:property] } * ', '}." if defn.nil? || !defn['active']
-
-          # Input validation BEFORE any Step is built; failure carries the
-          # §2.6 envelope with verdict argument_error.
-          begin
-            Cortex.entity_validate_arguments!(defn, arguments,
-                                              Cortex.entity_argument_closure(type, property))
-          rescue StandardError => e
-            error = Cortex::Error.envelope(e, context: { phase: 'input_validation',
-                                                         entity_type: type,
-                                                         property: property })
-            raise ParameterException, JSON.generate(error)
-          end
-
-          vector = %w[both array].include?(defn['property_type'].to_s)
-        rescue
-          vector = Array === receiver
-        end
+        # ---------------------------------------------------------------
+        # REGIME CLASSIFICATION (design §11): BEFORE any Step is built.
+        #   Active definition (own or adopted) -> task path (regime B/C);
+        #   no active definition on an adoptable module -> plain-method
+        #   path (regime A).  A task that fails to build or execute is an
+        #   ERROR (§2.6 envelope), never a silent fallback.
+        # ---------------------------------------------------------------
+        defn = Cortex.property_definition(type, property)
+        defn = nil if Hash === defn && !defn['active']
+        regime = defn.nil? ? :plain : :task
 
         # Named-list receivers resolve to their member ids up front; the
         # named list only annotates receipts and drives the staleness rule.
@@ -175,53 +163,165 @@ module Cortex
 
         scalar_receiver = !(Array === receiver)
 
+        return run_plain_method(type: type, property: property, mod: mod,
+                                receiver: receiver, arguments: arguments,
+                                named_list: named_list,
+                                entity_options: entity_options) if regime == :plain
+
+        # --- Regime B/C: task path ---------------------------------------
+        # Input validation BEFORE any Step is built; failure carries the
+        # §2.6 envelope with verdict argument_error and propagates uncaught.
         begin
-          jobs = build_jobs(mod, type, property, receiver, arguments,
-                            vector: vector, entity_options: entity_options)
+          Cortex.entity_validate_arguments!(defn, arguments,
+                                            Cortex.entity_argument_closure(type, property))
+        rescue StandardError => e
+          error = Cortex::Error.envelope(e, context: { phase: 'input_validation',
+                                                       entity_type: type,
+                                                       property: property })
+          raise ParameterException, JSON.generate(error)
+        end
 
-          # update / staleness bookkeeping (NOT counted against the timeout):
-          #   update:true force-cleans everything; a named-list run whose list
-          #   file is newer than a DONE Step is stale and recomputes.
-          stale_list = stale_list_path(type, named_list, update)
-          jobs.each do |j|
-            j.clean if update || (stale_list && j.done? &&
-                                  Path.newer?(j.path, stale_list))
+        vector = %w[both array].include?(defn['property_type'].to_s)
+
+        jobs = build_jobs(mod, type, property, receiver, arguments,
+                          vector: vector, entity_options: entity_options)
+
+        # update / staleness bookkeeping (NOT counted against the timeout):
+        #   update:true force-cleans everything; a named-list run whose list
+        #   file is newer than a DONE Step is stale and recomputes.
+        stale_list = stale_list_path(type, named_list, update)
+        jobs.each do |j|
+          j.clean if update || (stale_list && j.done? &&
+                                Path.newer?(j.path, stale_list))
+        end
+
+        receipts = execute_jobs(jobs, arguments: arguments,
+                                scalar_receiver: scalar_receiver,
+                                vector: vector, named_list: named_list,
+                                timeout: timeout)
+
+        # Fan-out failure counts (§2.6): annotate errored member receipts.
+        if receipts.length > 1
+          total  = receipts.length
+          failed = receipts.count { |r| r[:error] }
+          receipts.each do |r|
+            r[:failed_members] = failed if r[:error]
+            r[:total_members]  = total
           end
+        end
 
-          receipts = execute_jobs(jobs, arguments: arguments,
-                                  scalar_receiver: scalar_receiver,
-                                  vector: vector, named_list: named_list,
-                                  timeout: timeout)
+        # §2.7: vector runs return ONE receipt; :single fan-out returns an
+        # array of per-member receipts; a scalar :single receiver returns
+        # its single receipt unwrapped.
+        return receipts.first if vector || (scalar_receiver && receipts.length == 1)
+        receipts
+      end
 
-          # Fan-out failure counts (§2.6): annotate errored member receipts.
-          if receipts.length > 1
-            total  = receipts.length
-            failed = receipts.count { |r| r[:error] }
-            receipts.each do |r|
-              r[:failed_members] = failed if r[:error]
-              r[:total_members]  = total
+      # Regime A (design §11): no active Cortex definition, adoptable module.
+      # The property runs as a plain method on the annotated entity; nothing
+      # is materialized, so the receipt carries the raw value and NULL
+      # address/materialized/info_path, with the RECEIVER POPULATED (the
+      # §2.7 shape; the pre-step-3 demo returned receiver: null).
+      #   - arguments {}          -> zero arguments (the working demo shape)
+      #   - arguments non-empty   -> Method#parameters introspection:
+      #       keyword params (:key/:keyreq) -> keyword dispatch
+      #       positional param (:req/:opt)   -> the Hash as ONE positional
+      #       neither                         -> argument_error envelope (§2.6)
+      #   - named-list receiver   -> per-member execution, one receipt each
+      #   - any failure RAISES (never swallowed): a ParameterException keeps
+      #     its §2.6 envelope; the ScoutException-family maps to
+      #     definition_error; anything else to execution_error.
+      def run_plain_method(type:, property:, mod:, receiver:, arguments:,
+                           named_list: nil, entity_options: nil)
+        options = parse_entity_options(entity_options)
+        members = Array === receiver ? receiver : [receiver]
+        receipts = members.collect do |member|
+          annotated = mod.setup(member, options)
+          value =
+            if arguments.nil? || arguments.empty?
+              annotated.send(property)
+            else
+              dispatch = plain_method_dispatch(mod, type, property, arguments)
+              if dispatch[:kwargs]
+                kwargs = {}
+                arguments.each { |k, v| kwargs[k.to_sym] = v }
+                annotated.send(property, **kwargs)
+              else
+                annotated.send(property, arguments)
+              end
             end
-          end
-
-          # §2.7: vector runs return ONE receipt; :single fan-out returns an
-          # array of per-member receipts; a scalar :single receiver returns
-          # its single receipt unwrapped.
-          return receipts.first if vector || (scalar_receiver && receipts.length == 1)
-          receipts
-        rescue
-          receiver = mod.setup(receiver)
-          value = receiver.send(property, *arguments)
 
           Cortex::Receipt.build(
             entity_type: type,
             property: property,
-            receiver: receipt_receiver(nil, receiver, vector, named_list),
+            receiver: member,
             arguments: arguments,
             defn: nil,
             step: nil,
             value: value
-          ).tap { |r| r[:entity_list] = "#{workflow_name(job)}/#{named_list}" if named_list }
+          )
+        rescue NoMethodError
+          raise ScoutException,
+                "No active definition for #{type}/#{property} and the adopted " \
+                "module has no instance method `#{property}'. Define it with " \
+                'cortex_property_define first.'
         end
+        receipts.each { |r| r[:entity_list] = "#{type}/#{named_list}" if named_list }
+        Array === receiver ? receipts : receipts.first
+      end
+
+
+      # §11.3 argument rule for the plain-method path.  Two introspection
+      # sources, in order:
+      #
+      #   1. mod.properties[property] -- for EntityWorkflow `property` blocks,
+      #      scout-gear records the AUTHOR block's parameters there
+      #      (lib/scout/entity/property.rb:66 `properties[name] =
+      #      block.parameters`).  The generated wrapper method itself always
+      #      takes (*args, **kwargs) (property.rb:98), so Method#parameters
+      #      would always report rest+keyrest and dispatch could never see
+      #      the author's real signature.
+      #   2. Method#parameters -- for plain instance methods (e.g. the
+      #      Finances Security demo surface, `def is_fee?`).
+      #
+      # Dispatch: keyword params -> [arguments] as kwargs; positional params
+      # -> the Hash as ONE positional argument; neither -> argument_error
+      # envelope (§2.6).  Returns the argument array to splat into #send;
+      # kwargs cannot be splatted through a plain Array, so keyword dispatch
+      # is signalled by the leading element being the Hash itself.
+      def plain_method_dispatch(mod, type, property, arguments)
+        params = nil
+        if mod.respond_to?(:properties) && Hash === mod.properties
+          params = mod.properties[property.to_sym] rescue nil
+        end
+        params = annotated_method_parameters(mod, property) if params.nil?
+
+        kinds = Array(params).collect { |kind, _| kind }
+        if kinds.any? { |k| %i[key keyreq keyrest].include?(k) }
+          { kwargs: true }
+        elsif kinds.any? { |k| %i[req opt rest].include?(k) }
+          { kwargs: false }
+        else
+          raise_plain_argument_error(type, property, arguments)
+        end
+      end
+
+      def annotated_method_parameters(mod, property)
+        member = mod.setup('probe', {})
+        method = (member.method(property) rescue nil)
+        return [] if method.nil?
+        method.parameters
+      end
+
+      def raise_plain_argument_error(type, property, arguments)
+        error = { exception_class: 'ParameterException',
+                  exception_message: "Method #{type}##{property} accepts no " \
+                    "arguments but #{Array(arguments.keys) * ', '} given",
+                  message_is_bare: false, backtrace_head: [],
+                  verdict: Cortex::Error::VERDICT_ARGUMENT,
+                  context: { phase: 'input_validation', entity_type: type,
+                             property: property } }
+        raise ParameterException, JSON.generate(error)
       end
 
       # Public helper for callers that need the Step(s) WITHOUT running:

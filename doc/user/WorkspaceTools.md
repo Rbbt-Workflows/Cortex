@@ -274,15 +274,42 @@ arguments, definition:{version,digest}, address, result_kind, status,
 value (bounded), materialized:{path,bytes}, info_path}` — every field
 mechanically derived from the produced Step or the call inputs.
 
-Placement: entity modules root their jobs at the `:current` map, so
-`materialized.path` lands under the workflow checkout (`./var/jobs/...`)
-rather than `~/.scout/var/jobs` — the checkout tree is mounted in the
-execution sandbox, so result files are readable from scripts (the
-motivation for the rule). Caveat: `Path#find` is first-existing-wins, so
-labels whose old-root directories already exist (pre-change evidence,
-e.g. foreign types) keep replaying at the old root; both roots resolve
-through `cortex_result`, whose resolution is root-independent. Validation
-and receipts: `research/impl-step9-current-placement-validation.md`.
+**Definition-less execution on adopted foreign types.** When
+`entity_type` names a pre-existing EntityWorkflow module with NO active
+Cortex definition (e.g. a foreign `Security` entity type), the run does
+not fail: the plain method is executed on the entity object and the
+receipt is the SAME envelope with `definition: {version: 0, digest:
+null}` and null `address`/`result_kind`/`status`/`materialized`/
+`info_path` — there is no Step to address, so nothing to resolve with
+`cortex_result`; `receiver` carries the entity id and `value` the raw
+return. A named list in this regime executes members individually and
+returns one fallback receipt per member (tagged `entity_list`),
+preserving the `failed_members`/`total_members` counting. Failures are
+NOT swallowed: unknown/invalid arguments on either path (and
+`NoMethodError`/`ArgumentError` on the plain path) surface as the
+structured error envelope with verdict `argument_error`/
+`execution_error`, never a silent fallback.
+
+Placement: entity modules' job directories are PINNED to the checkout
+`var/jobs/<Type>/...` (independent of the process CWD), so
+`materialized.path` lands under the workflow checkout rather than
+`~/.scout/var/jobs` — the checkout tree is mounted in the execution
+sandbox, so result files are readable from scripts (the motivation for
+the rule). Caveat: `Path#find` is first-existing-wins, so labels whose
+old-root directories already exist (pre-change evidence, e.g. foreign
+types) keep replaying at the old root; both roots resolve through
+`cortex_result`, whose resolution is root-independent. Validation and
+receipts: `research/impl-step9-current-placement-validation.md`,
+`research/impl-step11-foreign-adoption-validation.md`.
+
+CLI notes (when invoking through `scout` instead of the agent task):
+`scout task` does not exist on this build — use
+`scout workflow task Cortex <task> ...` or the `scout cortex`
+subcommands; running from the Cortex repo root can hit a workflow
+discovery/autoinstall trap (`Workflow Cortex not found` → GitHub 404),
+worked around by a scratch workflows dir with a symlink to the checkout;
+the `:json` projection stringifies plain-path booleans (`"false"`).
+Details: `doc/user/CortexCLI.md`, `tmp/step6-cli/README.md`.
 
 ## `cortex_result`  -  resolve an address (never executes)
 
