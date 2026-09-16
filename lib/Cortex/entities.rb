@@ -1522,6 +1522,14 @@ end
       Timeout.timeout(seconds.to_i, EntityPropertyTimeout, &block)
     end
 
+    def parse_entity_options(entity_options)
+      return entity_options if Hash === entity_options
+      require 'json'
+      JSON.parse(entity_options)
+    rescue JSON::ParserError
+      raise ScoutException, "entity_options must be a JSON object: #{entity_options.inspect}"
+    end
+
     # The body is executed inside Timeout.timeout in run_entity_property, so
     # the deadline applies to Step#run AND the per-member fan-out loop.  A hit
     # leaves the running Step status :error with no result file (observed), so
