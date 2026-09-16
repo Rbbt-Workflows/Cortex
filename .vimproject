@@ -58,8 +58,9 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
   test_helper.rb
  }
  share=share{
- scout_commands=scout_commands{
-  cortex
+ scout_commands=scout_commands filter="*"{
+  cortex=cortex{
+  }
  }
 }
 }

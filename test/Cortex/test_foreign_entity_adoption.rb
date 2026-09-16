@@ -29,6 +29,7 @@ Scout::Config::CACHE['cortex'] = [[['read_maps'], 'lib,current,user'],
 Cortex.instance_variable_set(:@entity_root, Path.setup('var'))
 
 ADOPT_TYPE = 'AdoptSec'.freeze
+NATIVE_TYPE = 'NativeQuote'.freeze
 
 # The FOREIGN fixture: a pre-existing EntityWorkflow module with real instance
 # methods (regime A surface), exactly how Finances::Security appears.
@@ -49,6 +50,14 @@ module AdoptSec
   def pos_marker(opts)
     "POS:#{opts['k'] || opts[:k] || '?'}:#{to_s}"
   end
+end
+
+# Native class fixture: no Entity/EntityWorkflow mixin, but a conventional
+# class-level lookup method and a native instance property.
+class NativeQuote
+  def self.find(id); new(id); end
+  def initialize(id); @id = id; end
+  def olhc; "NATIVE:#{@id}"; end
 end
 
 module TestForeignAdoptionHelpers
@@ -102,6 +111,15 @@ class TestForeignEntityAdoption < Test::Unit::TestCase
 
   def teardown
     purge!
+  end
+
+  # Native classes are accepted through the plain-method adapter without
+  # being extended or compiled by Cortex.
+  def test_native_class_plain_method
+    r = run!(NATIVE_TYPE, 'olhc', 'GOOG:20260916')
+    assert_equal 'NATIVE:GOOG:20260916', r[:value]
+    assert_equal 0, r[:definition][:version]
+    assert_nil r[:address]
   end
 
   # --------------------------------------------------------------- regime A

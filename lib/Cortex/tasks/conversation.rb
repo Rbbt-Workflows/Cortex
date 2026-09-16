@@ -52,7 +52,7 @@ module Cortex
 
   input :agent, :string, 'Agent name; optionally Agent/brief_name to load a brief stored in the Cortex briefs namespace (e.g. Worker/math loads brief math for agent Worker)', nil
   chat_task :continue do
-    load_agent_conversation inputs[:agent], chat
+    load_agent_conversation provided_inputs[:agent], provided_inputs[:chat]
   end
 
   # ------------------------------------------------------------------
@@ -62,7 +62,7 @@ module Cortex
   input :conversation, :string, 'Conversation name in the Cortex conversations namespace', nil, required: true, nofile: true, jobname: true
   input :prompt, :text, 'Prompt to continue the conversation', nil, required: true
   dep :continue, chat: :placeholder do |jobname,options|
-    conversation, prompt = options.values_at :conversation, :prompt
+    conversation, prompt = options.values_at(:conversation, :prompt)
     {chat: Cortex.conversation_prompt_chat(conversation, prompt, namespace: :conversations)}
   end
   task :cortex_continue => :json do |conversation,prompt|
@@ -79,7 +79,7 @@ module Cortex
   input :tools, :array, 'Tool specs persisted in the brief body as tool:/introduce: chat messages; a briefed agent (cortex_continue --agent Agent/<brief>) receives exactly these tools. Grammar "Workflow [task [input|name=value ...]]": whole workflow "Baking" adds introduce: Baking plus tool: Baking (one tool per task, full inputs); "Workflow task [inputs...]" adds one tool: line, verbatim. name=value pre-fills the input and hides it from the model; bare names restrict the accepted inputs; noinputs/none as the sole input token exposes the task with no inputs. Specs are validated for syntax only and resolved at continue time (a workflow may be absent now and installed later). Give tools to REPLACE the brief tooling (tools: [] strips it all); omit tools to KEEP the existing tooling. JSON array of strings, never comma-split', nil
   input :reply, :boolean, 'Have the agent reply to the prompt and include the answer in the brief; false (default) stores the prompt only, with no inference pass', false
   dep :continue, chat: :placeholder do |jobname,options|
-    conversation, prompt, tools, reply = options.values_at :conversation, :prompt, :tools, :reply
+    conversation, prompt, tools, reply = options.values_at(:conversation, :prompt, :tools, :reply)
     if reply.to_s == 'true'
       {chat: Cortex.brief_prompt_chat(conversation, prompt, Cortex.parse_tools_input(tools))}
     else

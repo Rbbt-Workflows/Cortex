@@ -233,10 +233,17 @@ module Cortex
       #     definition_error; anything else to execution_error.
       def run_plain_method(type:, property:, mod:, receiver:, arguments:,
                            named_list: nil, entity_options: nil)
+
         options = parse_entity_options(entity_options)
         members = Array === receiver ? receiver : [receiver]
+        # Native classes (no Entity/EntityWorkflow mixin, e.g. a plain
+        # `find`-style class) have no Annotation `setup`; fall back to
+        # the class-level lookup convention when present.
+        annotate = mod.respond_to?(:setup) ?
+          ->(m) { mod === m ? m : mod.setup(m) } :
+          ->(m) { mod.respond_to?(:find) ? mod.find(m) : m }
         receipts = members.collect do |member|
-          annotated = mod.setup(member, options)
+          annotated = annotate.call(member)
           value =
             if arguments.nil? || arguments.empty?
               annotated.send(property)
@@ -264,7 +271,7 @@ module Cortex
           raise ScoutException,
                 "No active definition for #{type}/#{property} and the adopted " \
                 "module has no instance method `#{property}'. Define it with " \
-                'cortex_property_define first.'
+                "cortex_property_define first. Exception message: #{$!.message}"
         end
         receipts.each { |r| r[:entity_list] = "#{type}/#{named_list}" if named_list }
         Array === receiver ? receipts : receipts.first

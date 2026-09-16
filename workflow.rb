@@ -7,6 +7,7 @@ $LOAD_PATH.unshift lib unless $LOAD_PATH.include?(lib)
 
 require 'Cortex/path_maps'
 require 'Cortex/storage'
+require 'Cortex/request_context'
 require 'Cortex/conversations'
 require 'Cortex/briefs'
 require 'Cortex/artifacts'
@@ -82,6 +83,7 @@ module Cortex
   helper :load_conversation do |conversation| Cortex.load_conversation(conversation) end
   helper :load_brief do |brief| Cortex.load_brief(brief) end
   helper :resolve_brief do |agent, brief| Cortex.resolve_brief(agent, brief) end
+  helper :request_context do |step| Cortex::RequestContext.for_step(step) end
   helper :save_conversation do |conversation,prompt,new| Cortex.save_conversation(conversation, prompt, new) end
   helper :save_brief do |brief,prompt,new,**kw| Cortex.save_brief(brief, prompt, new, **kw) end
   helper :validate_type! do |type| Cortex.validate_type!(type) end
@@ -114,6 +116,16 @@ module Cortex
             end
     agent.start_chat.tool 'Cortex'
     agent.follow chat if chat && !chat.empty?
+    inherited = Cortex::RequestContext.effective_for(self, agent, chat)
+    unless inherited.empty?
+      # Agent#ask consumes endpoint/backend/model from other_options; the
+      # request_context ivar alone only preserves provenance. Merge inherited
+      # values as defaults so explicitly supplied agent/brief/child values
+      # remain authoritative and no chat message is created.
+      owned = agent.other_options || {}
+      agent.other_options = IndiferentHash.setup(inherited.merge(owned))
+      agent.request_context = inherited
+    end
     # scout-ai 2.0.0 has no LLM::Agent.canonical_chat_file; the canonical
     # layout rule (AgentWorkflow#log_agent) is <files_dir>/<agent>.chat,
     # where the agent name is the part before the optional '/brief'.

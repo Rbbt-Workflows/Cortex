@@ -331,35 +331,37 @@ module Cortex
     end
 
     # ------------------------------------------------------------------
-    # Cross-map resolution.  Unlike content reads (first match wins),
-    # executable definitions with two physical sources are a HARD ERROR: the
-    # same code would compute differently depending on the map order, and
-    # both bodies would be cached under overlapping job paths.
+    # Cross-map resolution.  PRECEDENCE semantics (not an error): the first
+    # map in read order that holds a definition WINS and lower-precedence
+    # copies are SHADOWED -- which is exactly what makes overriding a
+    # property from a higher-precedence map legal.  Which copy ran stays
+    # distinguishable after the fact: every receipt carries the winning
+    # definition's digest, and the definitions listing shows shadowed
+    # copies as their own per-map rows.
     # ------------------------------------------------------------------
 
+    # => [[meta_path, map, meta], ...] in read_maps order (highest precedence
+    # first), one entry per DISTINCT physical copy.  Bodies over multiple map
+    # tags pointing at the same file are collapsed by realpath, so shadowed
+    # copies and the winning copy are the only entries.
     def entity_sources(type, property)
       read_maps
-        .map { |map| entity_meta_path(type, property, map) }
-        .select { |p| File.exist? p }
-        .map { |p| [p, entity_meta_read(p)] }
+        .map { |map| [entity_meta_path(type, property, map), map] }
+        .select { |p, _map| File.exist? p }
+        .map { |p, map| [p, map, entity_meta_read(p)] }
         # The same physical file can be reached through more than one map tag
         # (e.g. when :current and :lib resolve to the same directory); those
         # are NOT ambiguity -- only distinct physical copies are.
-        .uniq { |path, _meta| File.realpath(path) rescue path }
+        .uniq { |path, _map, _meta| File.realpath(path) rescue path }
     end
 
     def entity_resolve!(type, property)
-      sources = entity_sources type, property
-      if sources.length > 1
-        list = sources.collect { |p, _| p }
-        raise ScoutException,
-              "Ambiguous entity property #{type}/#{property}: found in " \
-              "#{sources.length} path maps (#{list * ', '}). Two copies of " \
-              "executable code with the same address are not allowed. Remove " \
-              "one (Cortex.update_property / Cortex.remove_property, then " \
-              "redefine in the intended map)."
-      end
-      sources.first
+      # First hit in read_maps order wins (:current first); lower copies are
+      # shadowed, never an error.  Overriding a property that exists in a
+      # lower-precedence map is therefore legal by construction (define in
+      # the write map), and receipts still tell the copies apart through the
+      # definition digest.
+      entity_sources(type, property).first
     end
 
     # ------------------------------------------------------------------
@@ -372,14 +374,14 @@ module Cortex
       source = entity_resolve! entity_type, property
       return nil unless source
 
-      path, meta = source
+      path, map, meta = source
       entity_validate_meta! meta, entity_type, property
       # Design §9: the result_type -> result_kind rename is applied ON READ;
       # the old field is recognized indefinitely and never rewritten on disk.
       meta['result_kind'] ||= meta['result_type'] if meta['result_type']
-      # Locate the map the meta came from so the body path is derived from
-      # the same map root (meta lives under <root>/entities/.meta/<T>/<p>.json).
-      map = read_maps.find { |m| path == entity_meta_path(entity_type, property, m) }
+      # The map comes with the source triple, so the body path is derived
+      # from the same map root (meta lives under
+      # <root>/entities/.meta/<T>/<p>.json).
       body_path = entity_body_path entity_type, property, map
       body = File.read(body_path) if File.exist? body_path
 
@@ -445,11 +447,10 @@ module Cortex
         meta = entity_meta_read meta_path
         next unless meta['entity_type'] == type
         next unless meta['active']
-        # Executable definitions must be unambiguous across maps: resolving
-        # here (rather than just trusting the first hit) turns a duplicated
-        # <Type>/<prop>.rb into a hard error instead of silently picking a
-        # copy of the code to run.
-        canonical, _canonical_meta = entity_resolve! type, meta['property']
+        # Cross-map precedence: entity_resolve! returns the first map in
+        # read order; the `canonical ==` check below keeps exactly that
+        # copy and shadow-skips lower-precedence duplicates.
+        canonical, = entity_resolve! type, meta['property']
         next if seen[meta['property']]
         next unless canonical == meta_path
         seen[meta['property']] = true
@@ -763,6 +764,12 @@ end
 
       return entity_new_module type if candidate.nil?
 
+      # Native domain entities (for example Finances::Quote) may be classes
+      # rather than Scout's module-based Entity/EntityWorkflow surface. They
+      # are owned by their workflow and must not be extended or recompiled.
+      # Cortex can still use their native methods through regime A.
+      return candidate if native_entity?(candidate)
+
       raise ScoutException,
             "Constant #{type} already exists and is not an Entity module " \
             "(#{candidate.class}); managed entity types cannot shadow or " \
@@ -812,6 +819,15 @@ end
             'entity type or remove the constant.'
 
       candidate
+    end
+
+    # Native workflow entities are deliberately not mixed into Cortex.  A
+    # class is considered native only when it exposes a conventional lookup
+    # or construction surface; this keeps unrelated constants protected.
+    def native_entity?(candidate)
+      (Class === candidate || Module === candidate) &&
+        (candidate.respond_to?(:setup) || candidate.respond_to?(:find) ||
+         candidate.respond_to?(:from_id) || candidate.respond_to?(:[]))
     end
 
     # +kind+ :entity (extends Entity) or :workflow (extends EntityWorkflow)
@@ -911,7 +927,7 @@ end
         # the type genuinely unknown.
         begin
           candidate = Kernel.const_get(type)
-          return resolve_entity_module type if entity_module?(candidate)
+          return resolve_entity_module type if entity_module?(candidate) || native_entity?(candidate)
         rescue NameError
         end
         return nil

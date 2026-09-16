@@ -355,7 +355,7 @@ class TestCortexEntities < Test::Unit::TestCase
   # ------------------------------------------------------------------
   # cross-map ambiguity
   # ------------------------------------------------------------------
-  def test_cross_map_ambiguity_is_hard_error
+  def test_cross_map_duplicate_resolves_by_precedence
     define('ProbeGene', 'amb', body: 'entity.to_s')
     src_body = Cortex.entity_body_path('ProbeGene', 'amb', :current)
     src_meta = Cortex.entity_meta_path('ProbeGene', 'amb', :current)
@@ -365,8 +365,51 @@ class TestCortexEntities < Test::Unit::TestCase
     FileUtils.mkdir_p(File.dirname(dst_meta))
     FileUtils.cp(src_body, dst_body)
     FileUtils.cp(src_meta, dst_meta)
-    assert_scout_ex('ambiguity') { Cortex.property_definition('ProbeGene', 'amb') }
-    assert_scout_ex('ambiguity') { Cortex.load_entity_type('ProbeGene') }
+    # Precedence, not an error: the first map in read order (:current)
+    # wins; the shadowed :user copy is skipped and resolution serves the
+    # winning copy.
+    assert_equal src_meta, Cortex.property_definition('ProbeGene', 'amb')['meta_path']
+    assert_equal src_body, Cortex.property_definition('ProbeGene', 'amb')['body_path']
+    refute_nil Cortex.load_entity_type('ProbeGene')
+    assert_equal src_meta, Cortex.entity_resolve!('ProbeGene', 'amb').first
+  end
+
+  def test_higher_precedence_map_shadows_lower_and_digest_distinguishes
+    # v1 defined in :current (write map); then a DIFFERENT body planted in
+    # :user.  :current wins while it exists; once removed, the :user copy
+    # takes over.  The two digests differ, which is what lets receipts
+    # tell which copy produced a given piece of evidence.
+    define('ProbeShadow', 'over', body: '"cur:" + entity.to_s')
+    cur_digest = Cortex.property_definition('ProbeShadow', 'over')['digest']
+
+    usr_body = File.join(USERDIR, 'var', 'cortex', 'entities', 'ProbeShadow', 'over.rb')
+    usr_meta = File.join(USERDIR, 'var', 'cortex', 'entities', '.meta', 'ProbeShadow', 'over.json')
+    FileUtils.mkdir_p(File.dirname(usr_body))
+    FileUtils.mkdir_p(File.dirname(usr_meta))
+    shadow_digest = Cortex.entity_definition_digest(
+      body: '"usr:" + entity.to_s', property_type: 'single',
+      result_type: 'string', arguments: [], dependencies: [])
+    File.write(usr_body, '"usr:" + entity.to_s')
+    File.write(usr_meta, JSON.pretty_generate(
+      'schema' => Cortex::ENTITY_META_SCHEMA, 'entity_type' => 'ProbeShadow',
+      'property' => 'over', 'description' => 'shadow copy',
+      'property_type' => 'single', 'result_type' => 'string',
+      'arguments' => [], 'dependencies' => [], 'version' => 1,
+      'digest' => shadow_digest, 'active' => true, 'versions' => []))
+    refute_equal cur_digest, shadow_digest
+
+    # :current shadows :user: resolution serves the :current copy.
+    d = Cortex.property_definition('ProbeShadow', 'over')
+    assert d['body'].include?('cur:'), ':current copy is served while it exists'
+    assert_equal cur_digest, d['digest']
+
+    # Drop the :current copy; the :user shadow becomes the resolution.
+    FileUtils.rm_f(Cortex.entity_body_path('ProbeShadow', 'over', :current))
+    FileUtils.rm_f(Cortex.entity_meta_path('ProbeShadow', 'over', :current))
+    d = Cortex.property_definition('ProbeShadow', 'over')
+    assert_equal shadow_digest, d['digest'], 'shadow copy takes over once the winner is gone'
+    assert d['meta_path'].start_with?(USERDIR), 'served from the :user map'
+    assert d['body'].include?('usr:'), 'shadow body is the served body'
   end
 
   # ------------------------------------------------------------------

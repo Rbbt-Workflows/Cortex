@@ -192,7 +192,7 @@ when 'properties' then []
     return [] unless File.directory?(dir)
     Dir.glob(File.join(dir.to_s, '**', '*')).
       select { |f| File.file?(f) }.
-      reject { |f| f.split(File::SEPARATOR).any? { |p| p.start_with?('.') } }.
+      reject { |f| f.split(File::SEPARATOR).any? { |p| p.start_with?('.meta') || p.start_with?('.history')  } }.
       collect { |f| f[dir.to_s.length + 1..-1] }.
       sort
   end

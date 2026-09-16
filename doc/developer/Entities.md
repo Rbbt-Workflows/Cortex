@@ -151,8 +151,16 @@ var/cortex/entities/.history/<Type>/<property>/  # version snapshots
 - The address is compound: `<Type>/<property>`. `<Type>` is a Ruby
   constant path; `<property>` is snake_case.
 - Resolution goes through the same `read_maps`/`write_map` machinery as
-  the other namespaces, but a definition that exists in **two distinct
-  physical locations** is a hard `ScoutException`.
+  the other namespaces. A definition that exists in **two distinct
+  physical locations** is NOT an error: the first map in `read_maps`
+  order WINS and lower-precedence copies are shadow-skipped — which is
+  what makes overriding a property from a higher-precedence map legal.
+  Which copy ran stays distinguishable after the fact: every execution
+  receipt carries the winning definition's digest, and
+  `cortex_property_list` shows shadowed copies as their own per-map rows
+  (agents and users should stay mindful of overrides; the machinery
+  never hides them). See `entity_sources`/`entity_resolve!` in
+  `lib/Cortex/entities.rb`.
 - Writes are body-first, metadata last.
 - **The only schema change is the read-side rename `result_type` →
   `result_kind`.** Old definition files are NEVER rewritten; on disk the
