@@ -280,6 +280,7 @@ module Cortex
 
   # Line-based pagination for text artifacts. Returns [text, meta-lines].
   def self.artifact_page(path, start_line, lines)
+    raise ScoutException "Path not found" unless Open.exists?(path)
     content = Open.read(path).to_s
     all_lines = content.split("\n", -1)
     total = all_lines.length
