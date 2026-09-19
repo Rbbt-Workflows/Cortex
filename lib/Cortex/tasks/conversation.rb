@@ -63,14 +63,27 @@ module Cortex
   input :prompt, :text, 'Prompt to continue the conversation', nil, required: true
   dep :continue, chat: :placeholder do |jobname,options|
     conversation, prompt = options.values_at(:conversation, :prompt)
-    {chat: Cortex.conversation_prompt_chat(conversation, prompt, namespace: :conversations)}
+    claim = Cortex.acquire_continue_claim(conversation, prompt,
+      job_path: jobname, agent: options[:agent])
+    begin
+      chat = Cortex.conversation_prompt_chat(conversation, prompt, namespace: :conversations)
+      {chat: chat, cortex_continue_claim: claim}
+    rescue Exception
+      Cortex.release_continue_claim(claim)
+      raise
+    end
   end
   task :cortex_continue => :json do |conversation,prompt|
     continue = step(:continue)
-    res = continue.load
-    res = Chat.setup(res)
-    save_conversation conversation, prompt, res
-    {meta: [{job: continue.short_path}], content: res.answer}
+    claim = continue.provided_inputs[:cortex_continue_claim] rescue nil
+    begin
+      res = continue.load
+      res = Chat.setup(res)
+      save_conversation conversation, prompt, res
+      {meta: [{job: continue.short_path}], content: res.answer}
+    ensure
+      Cortex.release_continue_claim(claim)
+    end
   end
 
   input :conversation, :string, 'Brief name in the Cortex briefs namespace; it does not need to contain the agent name', nil, required: true, nofile: true, jobname: true
