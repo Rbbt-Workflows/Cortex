@@ -83,7 +83,7 @@ Given `job=Cortex/continue/Default_965e....chat`:
 4. `Step.load(short_path)` loads the step in Ruby for programmatic
    inspection (`.info`, `.dependencies`, `.load`).
 
-Artifact provenance works the same way: `artifacts/.meta/<path>.json`
+Artifact provenance works the same way: adjacent `artifacts/<path>.info`
 records the `job` of each version, e.g. the `cortex_write` job, along with
 `agent`, `mode`, `timestamp`, and `size`.
 

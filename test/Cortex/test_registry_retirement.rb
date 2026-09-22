@@ -40,8 +40,7 @@ module Step5Helpers
     [LIBDIR, USERDIR].each do |root|
       STEP5_TYPES.each do |t|
         FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', t))
-        FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', '.meta', t))
-        FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', '.history', t))
+        FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', t))
         FileUtils.rm_rf(File.join(root, 'var', 'jobs', t))
         FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'lists', t))
         FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'properties', t))

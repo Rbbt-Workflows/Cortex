@@ -25,14 +25,14 @@ Every concept has exactly one code symbol and one path shadow:
 | entity type | `Cortex::Types.for(<Type>)` — anonymous module named `<Type>` | `var/cortex/entities/<Type>/` (definitions), `var/jobs/<Type>/` (results) |
 | entity | plain String id | the `<entity-id>` prefix of a result label |
 | property | one task per property (`property_task` + Cortex dep wiring + wrapper) | `var/cortex/entities/<Type>/<property>` (body), `var/jobs/<Type>/<property>/` (results) |
-| definition identity | defaultless inputs `_cortex_definition{,_version,_digest}` | the three values inside every `<label>.info[:inputs]`; version+digest in `.meta` |
+| definition identity | defaultless inputs `_cortex_definition{,_version,_digest}` | the three values inside every `<label>.info[:inputs]`; version+digest in adjacent `.info` |
 | argument set | task inputs from the definition spec | the `_<32hex>` suffix of the label; values echoed in `.info[:inputs]` |
 | result kind | task result type (`string`/`tsv`/`json`/...) | file extension (`.tsv`, `.json`) or its absence |
 | materialized result | `Step` (`path`/`load`/`info`/`files_dir`) | `<label>[.ext]` + `.info` + `.files/` |
 | address | `Step#short_path` | the path minus `var/jobs/` |
 | dependency | `dep <property>` + `step(:<property>)` | upstream addresses in `.info[:dependencies]` |
 | receipt | `Cortex::Receipt.build`; task `cortex_property_run` | no file — a projection of the Step |
-| named list | `cortex_write_list`/`cortex_read_list` | `var/cortex/lists/<entity_type>/<list>` + `.meta` |
+| named list | `cortex_write_list`/`cortex_read_list` | `var/cortex/lists/<entity_type>/<list>` + adjacent `.info` |
 
 ## Naming and addressing (the rules the engine guarantees)
 
@@ -144,8 +144,8 @@ constant exists either.
 
 ```
 var/cortex/entities/<Type>/<property>            # body (full Ruby file)
-var/cortex/entities/.meta/<Type>/<property>.json # metadata (schema v1)
-var/cortex/entities/.history/<Type>/<property>/  # version snapshots
+var/cortex/entities/<Type>/<property>.info # metadata (schema v1)
+var/cortex/entities/<Type>/<property>.files/history/ # version snapshots
 ```
 
 - The address is compound: `<Type>/<property>`. `<Type>` is a Ruby
@@ -284,11 +284,11 @@ only.
 | Operation | Semantics |
 |-----------|-----------|
 | `define` | refuses if an active property exists; stages + compiles in a scratch module; optional smoke; writes body then meta; version 1 |
-| `update` | requires `expected_version`; snapshots to `.history/NNNNNN.{rb,json}`; omitted fields keep their value; bumps version |
+| `update` | requires `expected_version`; snapshots to adjacent `.files/history/NNNNNN.{rb,json}`; omitted fields keep their value; bumps version |
 | `validate` | compile-only or compile+smoke; smoke ALWAYS `clean: true` in a fresh scratch directory (a previous run's error text is structurally unobservable); never mutates the store; staging includes the type's manifest so dependent candidates resolve their deps |
-| `remove` | requires version match; deletes the active `.rb` and KEEPS the meta tombstone (the removal record — `active: false`); drops the ownership entry so the module is re-adoptable; never leaves an orphaned body; history preserved; address redefinable |
-| `define` over an orphaned body (body without `.meta`) | treats the body as absent: version 1 with fresh meta (the orphan carries no identity, so nothing to version-conflict with) |
-| `history` | compact view of `.history` + `versions` |
+| `remove` | requires version match; deletes the active `.rb` and keeps the adjacent `.info` tombstone (the removal record — `active: false`); drops the ownership entry so the module is re-adoptable; never leaves an orphaned body; adjacent `.files/history/` preserved; address redefinable |
+| `define` over an orphaned body (body without `.info`) | treats the body as absent: version 1 with fresh `.info` (the orphan carries no identity, so nothing to version-conflict with) |
+| `history` | compact view of adjacent `.files/history/` + `versions` in `.info` |
 
 ## Evidence and the retired registry
 

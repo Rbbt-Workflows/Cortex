@@ -11,8 +11,8 @@ module Cortex
   input :entity_type, :string, 'Entity type of the list members (e.g. TF, Gene, Composite)', nil, required: true
   input :list, :string, 'List name (the file under var/cortex/lists/<entity_type>/; e.g. C01, cell-cycle)', nil, required: true
   input :entities, :text, 'Entities, one per line (newline separated)', nil, required: true
-  input :description, :string, 'Optional description recorded in the .meta sidecar', nil
-  input :entity_options, :text, 'Optional entity annotation options (JSON object, e.g. organism) recorded in the .meta sidecar and applied when the list is used as a property receiver', nil
+  input :description, :string, 'Optional description recorded in the .info sidecar', nil
+  input :entity_options, :text, 'Optional entity annotation options (JSON object, e.g. organism) recorded in the .info sidecar and applied when the list is used as a property receiver', nil
   task :cortex_write_list => :text do |entity_type,list,entities,description,entity_options|
     entity_options = parse_json entity_options, :entity_options
     name, count, _path = Cortex.write_list(entity_type, list, entities,
@@ -25,7 +25,7 @@ module Cortex
 
   input :entity_type, :string, 'Entity type of the list (e.g. TF)', nil, required: true, jobname: true
   input :list, :string, 'List name under var/cortex/lists/<entity_type>/', nil, required: true
-  input :include_meta, :boolean, 'Also report the .meta sidecar (description, entity_options, provenance)', false
+  input :include_meta, :boolean, 'Also report the .info sidecar (description, entity_options, provenance)', false
   task :cortex_read_list => :text do |entity_type,list,include_meta|
     entities, meta, _path, map, all_paths = Cortex.read_list(entity_type, list)
     out = []

@@ -63,7 +63,7 @@ The brief name does not need to contain the agent name. `Worker/bash-math`
 means "agent `Worker`, briefed with the brief named `bash-math`", and
 `bash-math` is stored in `briefs/` regardless of which agent it was written
 for. The agent the brief was created for is recorded in the sidecar
-`briefs/.meta/<name>.json`:
+adjacent `briefs/<name>.info`:
 
 ```json
 {"agent":"Worker","job":"Cortex/continue/Default_ee73....chat","timestamp":"2026-08-24 23:09:16"}
@@ -77,15 +77,14 @@ rule of thumb:
 > Conversations are working space. Artifacts are durable research objects.
 > When an investigation produces a reusable result, write it as an artifact.
 
-Artifacts are plain files under `artifacts/`, with automatic provenance
-sidecars under `artifacts/.meta/` and version snapshots under
-`artifacts/.history/`:
+Artifacts are plain files under `artifacts/`, with automatic provenance in an adjacent `.info` sidecar and version snapshots
+under the resource's `.files/history/` directory:
 
 ```
 var/cortex/artifacts/
   summing/answer.md            <- current content
-  .meta/summing/answer.md.json <- who wrote each version (job, agent, timestamp)
-  .history/summing/answer.md/  <- prior versions, never discarded
+  summing/answer.md.info                 <- who wrote each version
+  summing/answer.md.files/history/       <- prior versions, never discarded
 ```
 
 ## Entities
@@ -99,13 +98,23 @@ number.
 ```
 var/cortex/entities/
   Gene/activity_in_treatment.rb        <- trusted Ruby body
-  .meta/Gene/activity_in_treatment.json <- schema v1: arguments, deps, digest
-  .history/Gene/activity_in_treatment/  <- prior versions, never discarded
+  Gene/activity_in_treatment.info                 <- schema: arguments, deps, digest
+  Gene/activity_in_treatment.files/history/       <- prior versions, never discarded
 ```
 
 Discovery is `cortex_property_list` (definitions are not in `cortex_search`).
 The discipline: never transcribe a number by hand when a property can return
 it — cite the property job instead.
+
+### Sidecars and unsupported legacy layout
+
+Managed resources use adjacent sidecars: `<resource>.info` contains metadata,
+and `<resource>.files/history/` contains auxiliary files and prior versions.
+Missing sidecars are tolerated. Nested resources use the same naming rule, and
+listing/search filter recognized sidecars and history entries. Legacy
+namespace-level `.meta/` and `.history/` directories are unsupported, unread,
+unmigrated, and unmaintained. Conversations have no managed sidecars; retired
+property records and `var/jobs` Step `.info` files are separate mechanisms.
 
 ## The rule of thumb for growing research
 

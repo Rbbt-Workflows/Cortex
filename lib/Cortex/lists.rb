@@ -1,7 +1,7 @@
 require_relative 'storage'
 
 # ==========================================================================
-# Cortex lists: named entity lists (<entity_type>/<list> + .meta sidecar)
+# Cortex lists: named entity lists (<entity_type>/<list> + .info sidecar)
 # ==========================================================================
 #
 # A named entity list is a newline-separated list of entity identifiers:
@@ -22,7 +22,7 @@ require_relative 'storage'
 #     IRF3
 #     IRF7
 #
-# A YAML sidecar .meta/<entity_type>/<list>.yaml records the list's
+# A YAML sidecar .info/<entity_type>/<list>.yaml records the list's
 # entity_options and other metadata (description, created_by, created_at...).
 # All path resolution goes through the unified mechanism (storage.rb):
 # CORTEX[:lists]['TF/C01'].find traverses every configured path map.
@@ -59,7 +59,7 @@ module Cortex
     sidecar_paths(LISTS_NAMESPACE, list_name(entity_type, list), (map || write_map)).first
   end
 
-  # Write a list: newline-separated entities plus the .meta sidecar with the
+  # Write a list: newline-separated entities plus the .info sidecar with the
   # entity_options and provenance metadata.  Returns [name, count, path].
   def self.write_list(entity_type, list, entities, description: nil,
                       entity_options: nil, created_by: nil, job: nil, map: nil)
@@ -117,7 +117,7 @@ module Cortex
     [entities, meta, path, map, all_paths]
   end
 
-# Entity options recorded in the list's .meta sidecar, if any.  Used when a
+# Entity options recorded in the list's .info sidecar, if any.  Used when a
 # named list feeds a property execution so the receiver is annotated with
 # the options the list was defined with.  Returns an empty hash when the
 # sidecar or the key is absent; the caller merges (explicit input wins).

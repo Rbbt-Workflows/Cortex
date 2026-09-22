@@ -29,7 +29,7 @@ cortex_brief(
 - `conversation` is the brief name. It does not need to contain the agent
   name  -  store it under whatever name you will remember.
 - `agent` is the agent that will hold the brief and that the brief is
-  recorded for in `briefs/.meta/<name>.json`.
+  recorded for in adjacent `briefs/<name>.info`.
 - `tools` (optional) provisions the brief's tooling: a JSON array of spec
   strings in `"Workflow [task [input|name=value ...]]"` form, e.g.
   `["ScoutCoder help_workflow", "Baking"]`. The specs are expanded into
@@ -106,6 +106,6 @@ The conversation accumulates both turns, each with its own `meta: job=` line.
 
 | Call | Writes to | Sidecar |
 |------|-----------|---------|
-| `cortex_brief` | `var/cortex/briefs/<name>` | `briefs/.meta/<name>.json` (agent, job, timestamp) |
+| `cortex_brief` | `var/cortex/briefs/<name>` | adjacent `briefs/<name>.info` (agent, job, timestamp) |
 | `cortex_continue` | `var/cortex/conversations/<name>` | none (provenance is the `meta:` lines inside) |
-| `cortex_write` | `var/cortex/artifacts/<path>` | `artifacts/.meta/<path>.json` + `.history/` snapshots |
+| `cortex_write` | `var/cortex/artifacts/<path>` | adjacent `artifacts/<path>.info` + `<path>.files/history/` snapshots |

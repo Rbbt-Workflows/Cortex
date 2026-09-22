@@ -27,14 +27,15 @@ Resources live under `var/cortex/`, separated into six namespaces:
   bash"). Briefs are never mixed with regular conversations, and an agent
   cannot be briefed with a regular conversation.
 - `artifacts/` — durable research objects (claims, analyses, summaries,
-  dossiers). Every write records provenance (producing job, agent,
-  timestamp) in a `.meta/` sidecar and snapshots previous versions to
-  `.history/`, so nothing is silently overwritten.
+  dossiers). Every write records provenance in an adjacent `<resource>.info` sidecar and
+  snapshots previous versions under the resource's `<resource>.files/history/`
+  directory, so nothing is silently overwritten.
 - `entities/` — **executable** entity properties, addressed
   `entities/<Type>/<property>` (e.g. `Gene/activity_in_treatment`). A
   property is trusted Ruby code plus a metadata schema; running it for an
   entity produces a real, cacheable Scout Step with full provenance. Like
-  artifacts, every definition is versioned (`.meta/` + `.history/`). Unlike
+  artifacts, every definition is versioned in adjacent `<property>.info` and
+  `<property>.files/history/` sidecars. Unlike
   artifacts, definitions are managed exclusively by the property tools
   (`cortex_property_define`/`_update`/`_remove`); the generic
   `cortex_write`/`_edit`/`_rename`/`_move`/`_remove` do not apply to them.
@@ -42,9 +43,8 @@ Resources live under `var/cortex/`, separated into six namespaces:
   not indexed for search).
 - `lists/` — named entity lists, addressed `lists/<entity_type>/<list>`
   (e.g. `lists/TF/C01`, `lists/Composite/cell-cycle.md`). The file body is
-  a newline-separated list of entity ids; a `.meta` sidecar stores
-  `description`, `entity_options`, and provenance (`created_by`,
-  `created_at`, `job`). Lists are read and written with
+  a newline-separated list of entity ids; an adjacent `<list>.info` sidecar stores `description`,
+  `entity_options`, and provenance (`created_by`, `created_at`, `job`). Lists are read and written with
   `cortex_write_list`/`cortex_read_list` (and `cortex_read type=lists`),
   through the same path resolution as every other namespace.
 - `properties/` — the RETIRED execution registry, kept as read-only
@@ -60,7 +60,18 @@ Resources live under `var/cortex/`, separated into six namespaces:
   type=properties`, alongside the current materialized results
   (`source: step_info`).
 
-Dot-directories (`.meta`, `.history`) are internal and never listed.
+Resource sidecars are adjacent to their resource: `<resource>.info` stores
+metadata, and `<resource>.files/history/` stores prior versions or auxiliary
+files. Missing sidecars are tolerated. Nested resources use the same convention
+(for example, `claims/C42.md.info` and `claims/C42.md.files/history/`). Listing
+and search filter recognized sidecars and history entries, while preserving
+ordinary resources whose names merely contain `.info` or `.files`. Legacy
+namespace-level `.meta/` and `.history/` layouts are unsupported, unread,
+unmigrated, and unmaintained; they are not an alternative storage location.
+
+Conversations have no Cortex-managed sidecars, retired property records are
+self-contained JSON history, and `var/jobs` Step results have their own `.info`
+sidecars; those mechanisms are distinct from resource storage.
 
 Nested names are legal in all namespaces (`claims/C42.md`,
 `TF/TP53`), as simple relative paths: no absolute paths, no `~`, no `..`.
@@ -252,8 +263,8 @@ The intended evidence workflow is:
    the lists containing it and the conversations/briefs/artifacts that
    mention it).
 
-Versioning mirrors artifacts: definitions carry `.meta` (active version,
-digest, history) and `.history` snapshots; changes bump the digest, which
+Versioning mirrors artifacts: definitions carry adjacent `.info` metadata
+(active version and digest) and `.files/history/` snapshots; changes bump the digest, which
 moves every result address of that property (the definition identity is
 digested into each address). Executions of a mutated named list are also
 invalidated: a done result older than the list file is cleaned and
@@ -418,7 +429,7 @@ does not exist produces an actionable error listing available briefs.
 Create or update a reusable agent brief
 
 Grows `briefs/<name>` with the prompt (a fresh brief starts prompt-only
-when no `tools` are given) and saves it with a `.meta` sidecar recording
+when no `tools` are given) and saves it with an adjacent `.info` sidecar recording
 the target agent, the producing job, and a timestamp. The brief name does
 not need to contain the agent name. Use this before `cortex_continue`
 whenever an agent needs consistent preparation, then reference the agent
@@ -483,9 +494,9 @@ way as artifacts: the newline-separated entity ids, with a
 Write or append a durable artifact
 
 Creates or updates an artifact under `var/cortex/artifacts`. On replace,
-the previous version is snapshotted to `artifacts/.history` and a
+the previous version is snapshotted under `artifacts/<name>.files/history/` and a
 version record (job, agent, mode, map, timestamp, size) is accumulated
-in `artifacts/.meta/<name>.json`. Append mode adds to the end, creating
+in the adjacent `artifacts/<name>.info`. Append mode adds to the end, creating
 the artifact if absent. The content is never echoed back; the tool
 returns a one-line confirmation. Conversations are working space;
 artifacts are durable research objects — extract reusable results with
@@ -497,23 +508,23 @@ Make a targeted, exact text edit to an existing artifact
 Every occurrence of `find` (or the single occurrence, unless `all` is
 true) is replaced by `replace`. Fails rather than guessing when `find`
 is missing or occurs more than once without `all`. The previous version
-is snapshotted to `.history` and a version record (mode `edit`) is
-appended to `.meta`, exactly like a replace write. Do not resend whole
+is snapshotted to the resource `.files/history/` and a version record (mode `edit`) is
+appended to the adjacent `.info`, exactly like a replace write. Do not resend whole
 artifacts for small fixes; use this tool.
 
 ## cortex_rename
 Rename a resource without changing its path map
 
 Works on conversations, briefs, and artifacts. Artifacts and briefs take
-their sidecar metadata and history along, so provenance and prior
-versions stay attached; artifact `.meta` gets a version record (mode
+their adjacent `.info` metadata and `.files/` history along, so provenance and prior
+versions stay attached; artifact `.info` gets a version record (mode
 `rename`). The target name must not already exist. Use only for
 deliberate workspace management.
 
 ## cortex_remove
 Remove a resource explicitly and completely
 
-For artifacts and briefs the associated `.meta` metadata and `.history`
+For artifacts and briefs the associated `.info` metadata and `.files/history/`
 snapshots are removed together, so no orphaned provenance is left
 behind. The namespace is required; there is no implicit
 delete-anything. This is irreversible; use only for deliberate workspace
@@ -524,7 +535,7 @@ Write a named entity list under lists/<entity_type>/<list>
 
 Stores a newline-separated list of entity ids at
 `lists/<entity_type>/<list>` through the unified path resolution, plus a
-`.meta` sidecar (`description`, `entity_options`, provenance fields such
+adjacent `.info` sidecar (`description`, `entity_options`, provenance fields such
 as `created_by`/`created_at`/`job`). The list name is the file name
 verbatim (`C01`, `cell-cycle.md`); nested paths are allowed. Returns the
 list address and the entity count.
@@ -535,7 +546,7 @@ Read a named entity list
 Returns the newline-separated entities of
 `lists/<entity_type>/<list>` resolved across all readable path maps
 (first match wins; cross-map ambiguity is reported). With `include_meta`
-the `.meta` sidecar (description, entity_options, provenance) is appended
+the adjacent `.info` sidecar (description, entity_options, provenance) is appended
 below the entity count.
 
 Named lists are the preferred way to run properties over many entities:
@@ -551,9 +562,9 @@ automatically.
 Move a resource between path maps keeping its logical name
 
 Transfers the canonical resource (e.g. `:current` to `:lib` or `:user`)
-following resource-sync semantics: content, `.meta` metadata, and `.history`
+following resource-sync semantics: content, adjacent `.info` metadata, and `.files/history/`
 snapshots travel together as one logical object; the source disappears.
-Artifact `.meta` gets a version record (mode `move`) with from/to maps. The
+Artifact `.info` gets a version record (mode `move`) with from/to maps. The
 target must not already exist. Rename changes the logical name, move changes
 the path map — the two stay distinct.
 
@@ -597,8 +608,8 @@ only when executed.
 ## cortex_property_history
 Show the version history of an entity property
 
-Compact per-version listing combining the `.meta` versions array with the
-`.history/<Type>/<property>/` snapshots: version, action (`define`,
+Compact per-version listing combining the adjacent `.info` versions array with the
+adjacent `<property>.files/history/` snapshots: version, action (`define`,
 `update`, `remove`), short digest, producing job, agent, and timestamp.
 Every change to executable code is attributable.
 
@@ -637,7 +648,7 @@ Update an entity property at a known version
 Requires `expected_version` matching the active version (optimistic
 locking: a mismatch is an error listing both versions). Omitted fields
 keep their current value. The current body and metadata are snapshotted to
-`.history/<Type>/<property>/NNNNNN.{rb,json}`, the candidate is staged,
+adjacent `<property>.files/history/NNNNNN.{rb,json}`, the candidate is staged,
 and only then is the new version activated. Changing `body`, `arguments`,
 `dependencies` or the arity changes the definition digest, which
 invalidates every job of that property — that is the intended behavior for
@@ -648,7 +659,7 @@ invalidate caches).
 Remove an entity property, keeping its history
 
 Requires `expected_version`. Snapshots the active definition to
-`.history/`, writes a tombstone (metadata with `active: false`,
+the adjacent `.files/history/` directory, writes a tombstone (metadata with `active: false`,
 `removed: true`) and deletes the active `.rb` so the property is no longer
 executable or resolvable. The metadata and all history are preserved, and
 the address can be redefined later. Removal of executable evidence is

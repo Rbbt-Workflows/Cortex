@@ -57,7 +57,7 @@ Constants: `CORTEX` (= `Scout.var.cortex`), `VALID_TYPES`,
 |------|------|---------|
 | `continue` | `chat_task :continue` (`:chat`) | The only place an agent is built and run; brief resolution happens here |
 | `cortex_continue` | `:json` | Conversation turn: dep on `continue`, persist to `conversations/`, return receipt |
-| `cortex_brief` | `:json` | Brief creation: dep on `continue`, persist to `briefs/` + `.meta` sidecar, return receipt; optional `tools` input provisions the brief's tooling (`lib/Cortex/briefs.rb`) |
+| `cortex_brief` | `:json` | Brief creation: dep on `continue`, persist to `briefs/` + adjacent `.info` sidecar, return receipt; optional `tools` input provisions the brief's tooling (`lib/Cortex/briefs.rb`) |
 | `cortex_list` | `:text` | Compact namespace inventory |
 | `cortex_search` | `:text` | Lexical content search with snippets |
 | `cortex_read` | `:text` | Bounded reads (index / last / range / artifact) |

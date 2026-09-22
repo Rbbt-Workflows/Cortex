@@ -47,12 +47,12 @@ receipt's `job=` always names the execution, not the projection.
    `conversations/<name>` the prompt, then the new messages  -  which include
    a `meta:` message with the same `job=` reference, projected there by
    `Chat.project` inside `chat_task`.
-3. Briefs: `save_brief` additionally writes `briefs/.meta/<name>.json`
+3. Briefs: `save_brief` additionally writes adjacent `briefs/<name>.info`
    (`agent`, `job`, `timestamp`).
 4. Artifacts: `write_artifact` appends a version record
    (`job` = the `cortex_write` job, `agent`, `mode`, `timestamp`, `size`)
-   to `artifacts/.meta/<path>.json` and snapshots prior content under
-   `artifacts/.history/<path>/`.
+   to adjacent `artifacts/<path>.info` and snapshots prior content under
+   `artifacts/<path>.files/history/`.
 
 So four independent surfaces reference the same jobs: caller chat, workspace
 conversation, brief sidecar, artifact meta.

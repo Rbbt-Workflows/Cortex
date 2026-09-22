@@ -65,7 +65,7 @@ end
 
 purge
 
-# Remove an entity type created by this suite: body dir + .meta + .history,
+# Remove an entity type created by this suite: body dir and adjacent sidecars,
 # across every read map plus the write map. Tightly scoped to the given name.
 def purge_entity_type(type)
   return unless type.to_s =~ /\A[A-Z][A-Za-z0-9]*\z/
@@ -73,8 +73,7 @@ def purge_entity_type(type)
     base = Cortex.namespace_dir(:entities, m)
     next unless base
     [File.join(base.to_s, type),
-     File.join(base.to_s, '.meta', type),
-     File.join(base.to_s, '.history', type)].each do |d|
+     File.join(base.to_s, type)].each do |d|
       FileUtils.rm_rf(d) if File.directory?(d)
     end
   end
@@ -133,11 +132,11 @@ end
 # ---------------------------------------------------------------------
 check('edit replaces single occurrence, read reflects it, history grows') do
   Cortex.write_artifact(ART, "alpha beta\nsecond line\nthird line\n", :replace, job: 'test', agent: 'tester')
-  h_before = Dir[Cortex.resource_path(:artifacts, ART, Cortex.write_map).sub('probe/test/a.md', '.history/probe/test/a.md/*')].length
+  h_before = Dir[File.join(Cortex.artifact_history_path(ART), '*')].length
   Cortex.edit_artifact(ART, 'second line', 'SECOND LINE', job: 'test-edit', agent: 'tester')
   text = Cortex.read_artifact(ART, nil, nil)
   raise 'EXPECTED: edit not visible' unless text.include?('SECOND LINE')
-  h_after = Dir[Cortex.resource_path(:artifacts, ART, Cortex.write_map).sub('probe/test/a.md', '.history/probe/test/a.md/*')].length
+  h_after = Dir[File.join(Cortex.artifact_history_path(ART), '*')].length
   raise "EXPECTED: history not preserved (#{h_before} -> #{h_after})" unless h_after == h_before + 1
   text
 end
@@ -160,16 +159,16 @@ end
 # ---------------------------------------------------------------------
 check('write -> rename -> read; meta/history attached') do
   base = Cortex.resource_path(:artifacts, ART, Cortex.write_map)
-  hist_dir = base.sub('probe/test/a.md', '.history/probe/test/a.md')
-  meta_p = base.sub('probe/test/a.md', '.meta/probe/test/a.md.json')
+  hist_dir = Cortex.artifact_history_path(ART)
+  meta_p = Cortex.artifact_meta_path(ART)
   h_count = Dir[hist_dir + '/*'].length
   v_count = JSON.parse(Open.read(meta_p))['versions'].length
 
   Cortex.rename_resource(:artifacts, ART, ART2, job: 'test-rename', agent: 'tester')
 
   base2 = Cortex.resource_path(:artifacts, ART2, Cortex.write_map)
-  hist2 = base2.sub('probe/test/b.md', '.history/probe/test/b.md')
-  meta2 = base2.sub('probe/test/b.md', '.meta/probe/test/b.md.json')
+  hist2 = Cortex.artifact_history_path('probe/test/b.md')
+  meta2 = Cortex.artifact_meta_path('probe/test/b.md')
 
   raise 'EXPECTED: renamed content unreadable' unless Cortex.read_artifact(ART2, nil, nil).include?('X')
   raise 'EXPECTED: old name still resolvable' if Cortex.resolve_resource(:artifacts, ART)
@@ -196,8 +195,8 @@ end
 check('write -> remove leaves no stale metadata/history') do
   Cortex.remove_resource(:artifacts, ART)
   base = Cortex.resource_path(:artifacts, ART, Cortex.write_map)
-  meta_p = base.sub('probe/test/a.md', '.meta/probe/test/a.md.json')
-  hist_dir = base.sub('probe/test/a.md', '.history/probe/test/a.md')
+  meta_p = Cortex.artifact_meta_path(ART)
+  hist_dir = Cortex.artifact_history_path(ART)
   raise 'EXPECTED: resource still present' if File.exist?(base)
   raise 'EXPECTED: stale metadata left behind' if File.exist?(meta_p)
   raise 'EXPECTED: stale history left behind' if File.exist?(hist_dir)

@@ -118,7 +118,7 @@ cortex_brief(conversation:, prompt:, agent:, tools: [], reply: false)
 - `conversation`: the brief name (stored in `briefs/`, never mixed with
   regular conversations).
 - `prompt`: prompt for the agent producing the brief.
-- `agent`: agent the brief is for; recorded in the `briefs/.meta` sidecar
+- `agent`: agent the brief is for; recorded in the adjacent `briefs/<name>.info` sidecar
   and used to produce the brief.
 - `tools`: JSON array of tool-spec strings, never comma-split. Each spec
   follows `"Workflow [task [input|name=value ...]]"` and is expanded into
@@ -169,9 +169,11 @@ entity lists, and property records:
 cortex_write(path:, content:, mode: "replace"|"append", agent:)
 ```
 
-Creates or updates `artifacts/<path>` with full version history
-(`.history` snapshots) and provenance in `.meta` (job, agent, mode,
-map, timestamp, size). Append mode adds to the end, creating if absent.
+Creates or updates `artifacts/<path>` with full version history under the
+resource's `<path>.files/history/` directory and provenance in the adjacent
+`<path>.info` sidecar (job, agent, mode, map, timestamp, size). Missing
+sidecars are tolerated and created when metadata is written. Append mode adds
+to the end, creating the resource if absent.
 
 ## `cortex_edit`  -  exact text edit
 
@@ -184,7 +186,8 @@ Exact textual replacement. Fails with a clear error when:
 - `find` does not occur in the artifact, or
 - `find` occurs more than once, unless `all: true` is passed.
 
-Previous content is snapshotted to `.history` and the `.meta` version list
+Previous content is snapshotted to the resource's `.files/history/` and the
+adjacent `.info` version list
 grows (mode `edit`). No resending the whole artifact to change a sentence.
 
 ## `cortex_rename`  -  change logical name (same path map)
@@ -193,7 +196,8 @@ grows (mode `edit`). No resending the whole artifact to change a sentence.
 cortex_rename(type:, name:, to:, agent:)
 ```
 
-Moves content plus `.meta` plus `.history` together as one logical object;
+Moves content plus adjacent `.info` and `.files/` sidecars together as one
+logical object;
 the source disappears. Fails if the target exists or the source is missing.
 Nested names supported in all namespaces.
 
@@ -204,7 +208,8 @@ cortex_remove(type:, name:)
 ```
 
 Removes the resource and its associated metadata/history consistently; no
-orphaned `.meta`/`.history` entries remain. The namespace is always
+orphaned sidecar/history entries remain. Legacy namespace-level `.meta`/`.history`
+layouts are unsupported, unread, unmigrated, and unmaintained. The namespace is always
 explicit; there is no "delete anything with this name".
 
 ## `cortex_move`  -  transfer between path maps
@@ -213,7 +218,7 @@ explicit; there is no "delete anything with this name".
 cortex_move(type:, name:, to: "lib"|"current", agent:)
 ```
 
-Transfers the canonical resource (content + `.meta` + `.history`) between
+Transfers the canonical resource (content + adjacent `.info` + `.files/`) between
 path maps without changing its logical name, semantics analogous to
 `scout resource sync`. In a checkout where `:lib` and `:current` resolve to
 the same physical directory the move is a reported no-op. Rename and move

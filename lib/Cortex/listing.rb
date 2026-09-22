@@ -103,25 +103,21 @@ module Cortex
       rows.sort_by { |r| [r[0], r[1]] }
     when 'entities'
       # Group by entity type; each row is one property definition
-      # (Type/property).  Meta is the source of truth for version/digest.
-      require 'json'
-      namespace_entries(:entities).
-        select { |name, _map, _path| prefix.nil? || name.start_with?(prefix) }.
-        collect do |name, map, path|
-          next nil unless File.file?(path)
-          meta_path = File.join(namespace_dir(:entities, map), '.meta',
-                                *name.split(File::SEPARATOR)[0..-2],
-                                "#{File.basename(name, '.*')}.json")
-          version = digest = ptype = nil
-          if File.file?(meta_path)
-            meta = JSON.parse(File.read(meta_path)) rescue {}
-            version = meta['version'].to_s
-            digest  = meta['digest'].to_s[0, 8]
-            ptype    = meta['property_type'].to_s
-          end
-          [name, map.to_s, version.to_s, digest.to_s, ptype.to_s,
-           File.mtime(path).strftime('%Y-%m-%d %H:%M')]
-        end.compact
+      # (Type/property). Metadata is authoritative, including bodyless
+      # inactive tombstones left by remove_property.
+      # Load lazily: listing is also required directly by fresh CLI/test
+      # processes, before the entity engine has necessarily been loaded.
+      require_relative 'entities' unless respond_to?(:property_definitions)
+      Cortex.property_definitions(nil, prefix, active: false).collect do |definition|
+        meta = definition[:meta]
+        body = definition[:body_path]
+        info = definition[:meta_path]
+        timestamp_path = File.file?(body) ? body : info
+        ["#{definition[:entity_type]}/#{definition[:property]}",
+         definition[:map].to_s, meta['version'].to_s,
+         meta['digest'].to_s[0, 8], meta['property_type'].to_s,
+         File.mtime(timestamp_path).strftime('%Y-%m-%d %H:%M')]
+      end
     end
   end
 

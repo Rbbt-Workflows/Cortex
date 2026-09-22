@@ -66,8 +66,7 @@ module TestForeignAdoptionHelpers
       FileUtils.rm_rf(File.join(root, 'var', 'jobs', ADOPT_TYPE))
       FileUtils.rm_rf(File.join(root, 'var', 'jobs', 'FreshManaged'))
       FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', ADOPT_TYPE))
-      FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', '.meta', ADOPT_TYPE))
-      FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', '.history', ADOPT_TYPE))
+      FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', ADOPT_TYPE))
       FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'lists', ADOPT_TYPE))
     end
     Workflow.job_cache.clear
@@ -245,7 +244,7 @@ class TestForeignEntityAdoption < Test::Unit::TestCase
     # plain path: per-member execution, one fallback receipt each
     Cortex.entity_modules(ADOPT_TYPE).delete 'managed'
     FileUtils.rm_rf(File.join(LIBDIR, 'var', 'cortex', 'entities', ADOPT_TYPE))
-    FileUtils.rm_rf(File.join(LIBDIR, 'var', 'cortex', 'entities', '.meta', ADOPT_TYPE))
+    FileUtils.rm_rf(File.join(LIBDIR, 'var', 'cortex', 'entities', ADOPT_TYPE))
     outs2 = run!(ADOPT_TYPE, 'plain_marker', { list: "#{ADOPT_TYPE}/panel" })
     assert_equal 2, outs2.length, 'plain path: one fallback receipt per member'
     assert_equal %w[PLAIN:GOOG PLAIN:MSFT], outs2.collect { |r| r[:value] }

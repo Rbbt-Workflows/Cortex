@@ -21,12 +21,12 @@ require 'json'
 # Namespace layout under each map root:
 #
 #   conversations/  chat files (Scout chat format)
-#   briefs/         chat files + .meta sidecars
-#   artifacts/      text artifacts + .meta/.history sidecars
-#   entities/       <Type>/<property>.rb + .meta/.history (engine-managed,
+#   briefs/         chat files + adjacent .info sidecars
+#   artifacts/      text artifacts + adjacent .info/.files/history sidecars
+#   entities/       <Type>/<property>.rb + adjacent .info/.files (engine-managed,
 #                   see lib/Cortex/entities.rb)
 #   lists/          <entity_type>/<list> newline-separated entity lists
-#                   + .meta sidecars (see lib/Cortex/lists.rb)
+#                   + adjacent .info sidecars (see lib/Cortex/lists.rb)
 #   properties/     <Type>/<property>/<entity>.json execution records
 #                   (engine-managed registry, see lib/Cortex/properties.rb)
 #
@@ -154,21 +154,21 @@ module Cortex
 
   def self.sidecar_paths(namespace, name, path_map)
     base = namespace_dir(namespace, path_map)
+    resource = File.join(base, name)
     case namespace.to_s
-    when 'artifacts' then [File.join(base, '.meta', "#{name}.json"), File.join(base, '.history', name)]
-    when 'briefs' then [File.join(base, '.meta', "#{name}.json")]
-    # Entity definitions: <Type>/<property>.rb + per-property .meta/.history.
+    when 'artifacts' then ["#{resource}.info", "#{resource}.files"]
+    when 'briefs' then ["#{resource}.info"]
+    # Entity definitions use the same adjacent sidecars as other resources.
     # `name` is the compound address "Type/property".
     when 'entities'
       type, property = name.split(File::SEPARATOR, 2)
       raise ScoutException, "Invalid entities resource #{name.inspect}: expected <Type>/<property>" if property.nil? || property.empty?
-      [File.join(base, '.meta', type, "#{property}.json"),
-       File.join(base, '.history', type, property)]
-    # Named entity lists: <entity_type>/<list> + .meta/<entity_type>/<list>.yaml
+      ["#{resource}.info", "#{resource}.files"]
+    # Named entity lists: <entity_type>/<list> + adjacent .info metadata.
     when 'lists'
       type, list = name.split(File::SEPARATOR, 2)
       raise ScoutException, "Invalid lists resource #{name.inspect}: expected <entity_type>/<list>" if list.nil? || list.empty?
-      [File.join(base, '.meta', type, "#{list}.yaml")]
+      ["#{resource}.info"]
 # Property executions: <Type>/<property>/<entity>.json; wholly managed by
 # the recording engine (the record IS the metadata, no sidecar store).
 when 'properties' then []
@@ -186,13 +186,33 @@ when 'properties' then []
   # ------------------------------------------------------------------
 
   # Recursive enumeration of logical names in a namespace under one map.
-  # Dot-directories (.meta, .history) are excluded at every level.
+  # Resource sidecars are adjacent to the resource.  Exclude only the exact
+  # sidecar suffix and .files trees; names merely containing these strings
+  # remain ordinary resources.
   def self.namespace_names(namespace, path_map = nil)
     dir = namespace_dir(namespace, path_map)
     return [] unless File.directory?(dir)
     Dir.glob(File.join(dir.to_s, '**', '*')).
       select { |f| File.file?(f) }.
-      reject { |f| f.split(File::SEPARATOR).any? { |p| p.start_with?('.meta') || p.start_with?('.history')  } }.
+      # Only a `.files` component attached to an existing resource is
+      # reserved. A resource named `reports.files`, or a user directory such
+      # as `foo.files/`, remains ordinary unless `foo` is the resource whose
+      # sidecar it actually is.
+      reject do |f|
+        parts = f.split(File::SEPARATOR)
+        parts.each_index.any? do |idx|
+          component = parts[idx]
+          next false unless component.end_with?('.files')
+          base = parts[0...idx].join(File::SEPARATOR)
+          base = File::SEPARATOR + base unless base.start_with?(File::SEPARATOR)
+          sidecar = parts[0..idx].join(File::SEPARATOR)
+          sidecar = File::SEPARATOR + sidecar unless sidecar.start_with?(File::SEPARATOR)
+          component == '.files' || (File.directory?(sidecar) && File.file?(base))
+        end
+      end.
+      reject do |f|
+        File.basename(f).end_with?('.info') && File.file?(f.sub(/\.info\z/, ''))
+      end.
       collect { |f| f[dir.to_s.length + 1..-1] }.
       sort
   end

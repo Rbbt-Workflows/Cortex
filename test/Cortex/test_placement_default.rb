@@ -48,8 +48,7 @@ module TestPlacementHelpers
     [LIBDIR, USERDIR].each do |root|
       FileUtils.rm_rf(File.join(root, 'var', 'jobs', PLACEMENT_TYPE))
       FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', PLACEMENT_TYPE))
-      FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', '.meta', PLACEMENT_TYPE))
-      FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', '.history', PLACEMENT_TYPE))
+      FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', PLACEMENT_TYPE))
     end
     Cortex.managed_entity_registry.clear if Cortex.respond_to?(:managed_entity_registry)
   end

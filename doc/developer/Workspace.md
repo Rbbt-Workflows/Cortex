@@ -26,8 +26,9 @@ task contains its own path logic.
 | `ambiguous_names(ns, maps)` | names existing in more than one map |
 
 Namespaces: `conversations`, `briefs`, `artifacts` — all three support
-nested names (`probe/test/a.md`), all enumerated recursively, dot-dirs
-(`.meta`, `.history`) excluded everywhere.
+nested names (`probe/test/a.md`), all enumerated recursively, recognized resource sidecars and history entries excluded from listings;
+legacy namespace-level `.meta/` and `.history/` directories are unsupported,
+unread, unmigrated, and unmaintained.
 
 Convenience accessors (`conversation_path`, `brief_path`, `artifact_path`,
 ... ) are thin wrappers over the same functions.
@@ -88,8 +89,8 @@ reads resolve to the first map and report the ambiguity, and
 ## Entity lists
 
 `lists/<entity_type>/<list>` files hold newline-separated entity ids; the
-`.meta/<entity_type>/<list>.yaml` sidecar holds `description`,
-`entity_options`, and provenance (`created_by`, `created_at`, `job`).
+adjacent `<list>.info` sidecar holds `description`, `entity_options`, and
+provenance (`created_by`, `created_at`, `job`).
 `lib/Cortex/lists.rb` implements read/write on top of the same resolver;
 tasks are `cortex_write_list` / `cortex_read_list`, and `cortex_read
 type=lists` pages them like artifacts.
@@ -114,17 +115,18 @@ type=lists` pages them like artifacts.
 
 ## Artifact provenance and versioning
 
-- Write (`replace`/`append`) and edit snapshot prior content to
-  `artifacts/.history/<name>/<timestamp>.<n>` and append to
-  `artifacts/.meta/<name>.json` a version record `{job, agent, mode,
-  timestamp, size}` (mode is one of `replace`, `append`, `edit`, `rename`,
-  `move`).
-- `cortex_rename` moves content + `.meta` + `.history` together within the
-  same map and appends a `rename` version record carrying `renamed_from`.
+- Write (`replace`/`append`) and edit snapshot prior content under
+  `<resource>.files/history/<timestamp>.<n>` and update the adjacent
+  `<resource>.info` version record `{job, agent, mode, timestamp, size}`
+  (mode is one of `replace`, `append`, `edit`, `rename`, `move`). Missing
+  sidecars are tolerated and created when metadata is written.
+- `cortex_rename` moves content plus its adjacent `.info` and `.files/`
+  sidecars together within the same map and appends a `rename` version record
+  carrying `renamed_from`.
 - `cortex_move` transfers the whole logical object between path maps and
   appends a `move` record with from/to maps; when both maps resolve to the
   same directory it is a reported no-op.
-- `cortex_remove` deletes content plus both sidecars and prunes empty
+- `cortex_remove` deletes content plus adjacent sidecars and prunes empty
   parent directories; no stale metadata survives.
 - Producing jobs come from `self.short_path` of the calling task — the
   workflow job remains the single provenance source.
@@ -134,7 +136,7 @@ type=lists` pages them like artifacts.
 `Agent/brief` (`Worker/bash-math`) means agent `Worker` plus brief
 `bash-math` from `briefs/`. Briefs are never looked up in `conversations/`
 and regular conversations are never used as briefs; both mistakes raise
-actionable errors. A `.meta` sidecar in `briefs/.meta/` records the target
+actionable errors. An adjacent `.info` sidecar records the target
 agent and producing job. No prefix coupling: the brief name does not need
 to contain the agent name, and the legacy `var/cortex/<Agent>/<brief>`
 location is detected and reported.

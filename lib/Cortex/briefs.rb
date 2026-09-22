@@ -2,10 +2,10 @@ require_relative 'storage'
 require 'shellwords'
 
 # ==========================================================================
-# Cortex briefs: agent briefs namespace (chat file + .meta sidecar)
+# Cortex briefs: agent briefs namespace (chat file + .info sidecar)
 # ==========================================================================
 #
-# A brief is a chat file under briefs/ plus a JSON .meta sidecar recording
+# A brief is a chat file under briefs/ plus a JSON .info sidecar recording
 # which agent it belongs to and which job produced it. Resolution follows
 # the unified mechanism (CORTEX[ns][name].find across all configured maps);
 # a missing brief raises with actionable guidance (legacy locations,

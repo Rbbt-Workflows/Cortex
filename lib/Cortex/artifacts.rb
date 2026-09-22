@@ -5,8 +5,8 @@ require_relative 'storage'
 # ==========================================================================
 #
 # Artifacts are text files under artifacts/ with two sidecars:
-#   .meta/<name>.json    version records (job, agent, mode, map, size, ts)
-#   .history/<name>/     one snapshot per replace/edit, <ts>.<seq>
+#   <name>.info          version records (job, agent, mode, map, size, ts)
+#   <name>.files/history/ one snapshot per replace/edit, <ts>.<seq>
 # Sidecars travel with the resource on rename/move (see storage.rb).
 # Path resolution is the unified mechanism from storage.rb.
 
@@ -17,7 +17,7 @@ module Cortex
   end
 
   def self.artifact_history_path(name)
-    sidecar_paths(:artifacts, name, write_map)[1]
+    File.join(sidecar_paths(:artifacts, name, write_map)[1], 'history')
   end
 
   def self.artifact_meta_path(name)
@@ -31,10 +31,10 @@ module Cortex
     Open.mkdir File.dirname(target)
 
     if File.exist?(target) && mode.to_sym == :replace
-      # Per-artifact history dir: .history/<name>/<ts.seq>. The full artifact
+      # Per-artifact history dir: <name>.files/history/<ts.seq>. The full artifact
       # name (including subdirs) is the directory, so every artifact has its
       # own snapshot sequence and no sibling artifact shares the counter.
-      hpath = sidecar_paths(:artifacts, name, map)[1]
+      hpath = File.join(sidecar_paths(:artifacts, name, map)[1], 'history')
       Open.mkdir hpath
       seq = Dir.glob(File.join(hpath, '*')).length + 1
       Open.write File.join(hpath, "#{Time.now.strftime('%Y%m%d%H%M%S')}.#{seq}"), Open.read(target)
@@ -174,12 +174,16 @@ module Cortex
   end
 
   # Remove now-empty parent directories up to (excluding) the namespace root.
-  # Dot-directories (.meta, .history) never keep a directory alive.
+  # Sidecar directories never keep a resource parent alive.
   def self.prune_empty_dirs(namespace, path, map)
     base = namespace_dir(namespace, map)
     dir = File.dirname(path)
     while dir.start_with?(base.to_s) && dir != base.to_s
-      break unless Dir.glob(File.join(dir, '*')).reject { |f| File.basename(f).start_with?('.') }.empty?
+      entries = Dir.glob(File.join(dir, '*')).reject do |f|
+        base_name = File.basename(f)
+        base_name.start_with?('.') || base_name.end_with?('.info') || base_name.end_with?('.files')
+      end
+      break unless entries.empty?
       Dir.rmdir dir rescue nil
       dir = File.dirname(dir)
     end

@@ -1,6 +1,6 @@
 # Tests for the Cortex managed-entity engine and its tasks.
 #
-# ISOLATION: every entity definition, meta file and history snapshot, and every
+# ISOLATION: every entity definition, info file and history snapshot, and every
 # managed-entity job directory, is redirected into tmp/entity_test_var (two
 # distinct physical roots so :lib/:current vs :user behave like real maps).
 # The engine freezes its entity root on first use (lib/Cortex/entities.rb
@@ -27,12 +27,11 @@ TEST_TYPES = %w[TF ProbeGene ProbeDep ProbeA ProbeB ProbeCyc ProbeArr ProbeBoth
 module TestEntitiesHelpers
   def purge!
     [LIBDIR, USERDIR].each do |root|
-      %w[entities .meta .history jobs].each do |sub|
+      %w[entities jobs].each do |sub|
         TEST_TYPES.each do |t|
           FileUtils.rm_rf(File.join(root, 'var', 'cortex', sub == 'jobs' ? 'jobs' : 'entities',
                                     sub == 'jobs' ? t : t)) if sub == 'jobs'
-          FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities',
-                                    sub, sub.start_with?('.') ? t : t))
+          FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', t))
         end
       end
       FileUtils.rm_rf(File.join(root, 'var', 'jobs', 'Cortex'))
@@ -360,7 +359,7 @@ class TestCortexEntities < Test::Unit::TestCase
     src_body = Cortex.entity_body_path('ProbeGene', 'amb', :current)
     src_meta = Cortex.entity_meta_path('ProbeGene', 'amb', :current)
     dst_body = File.join(USERDIR, 'var', 'cortex', 'entities', 'ProbeGene', 'amb.rb')
-    dst_meta = File.join(USERDIR, 'var', 'cortex', 'entities', '.meta', 'ProbeGene', 'amb.json')
+    dst_meta = File.join(USERDIR, 'var', 'cortex', 'entities', 'ProbeGene', 'amb.rb.info')
     FileUtils.mkdir_p(File.dirname(dst_body))
     FileUtils.mkdir_p(File.dirname(dst_meta))
     FileUtils.cp(src_body, dst_body)
@@ -383,7 +382,7 @@ class TestCortexEntities < Test::Unit::TestCase
     cur_digest = Cortex.property_definition('ProbeShadow', 'over')['digest']
 
     usr_body = File.join(USERDIR, 'var', 'cortex', 'entities', 'ProbeShadow', 'over.rb')
-    usr_meta = File.join(USERDIR, 'var', 'cortex', 'entities', '.meta', 'ProbeShadow', 'over.json')
+    usr_meta = File.join(USERDIR, 'var', 'cortex', 'entities', 'ProbeShadow', 'over.rb.info')
     FileUtils.mkdir_p(File.dirname(usr_body))
     FileUtils.mkdir_p(File.dirname(usr_meta))
     shadow_digest = Cortex.entity_definition_digest(

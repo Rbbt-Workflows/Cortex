@@ -30,8 +30,7 @@ module Step2Helpers
     [LIBDIR, USERDIR].each do |root|
       STEP2_TYPES.each do |t|
         FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', t))
-        FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', '.meta', t))
-        FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', '.history', t))
+        FileUtils.rm_rf(File.join(root, 'var', 'cortex', 'entities', t))
         FileUtils.rm_rf(File.join(root, 'var', 'jobs', t))
       end
     end

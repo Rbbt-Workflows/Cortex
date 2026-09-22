@@ -25,8 +25,8 @@ require 'Cortex/evidence'
 #
 # Entity properties become first-class versioned Cortex resources.  The Ruby
 # bodies live under var/cortex/entities/<Type>/<property>.rb, their metadata
-# (schema v1) under var/cortex/entities/.meta/<Type>/<property>.json, and
-# history snapshots under var/cortex/entities/.history/<Type>/<property>/.
+# (schema v1) beside the body as <property>.rb.info, and history snapshots
+# under <property>.rb.files/history/.
 #
 # Everything in this file is a pure module function on Cortex; no Workflow
 # task is declared here.  This file must not require workflow.rb.
@@ -180,11 +180,11 @@ module Cortex
     end
 
     def entity_meta_path(type, property, map = nil)
-      File.join(entities_dir(map), '.meta', type, "#{property}.json")
+      "#{entity_body_path(type, property, map)}.info"
     end
 
     def entity_history_dir(type, property, map = nil)
-      File.join(entities_dir(map), '.history', type, property)
+      File.join("#{entity_body_path(type, property, map)}.files", 'history')
     end
 
     # ------------------------------------------------------------------
@@ -381,7 +381,7 @@ module Cortex
       meta['result_kind'] ||= meta['result_type'] if meta['result_type']
       # The map comes with the source triple, so the body path is derived
       # from the same map root (meta lives under
-      # <root>/entities/.meta/<T>/<p>.json).
+      # <root>/entities/<T>/<p>.rb.info).
       body_path = entity_body_path entity_type, property, map
       body = File.read(body_path) if File.exist? body_path
 
@@ -413,21 +413,21 @@ module Cortex
                  # the activity facets.
                  property: meta['property'],
                  meta: meta, meta_path: meta_path,
-                 body_path: meta_path.sub(%r{/\.meta/}, '/').sub(%r{\.json\z}, '.rb'),
+                 body_path: meta_path.sub(/\.info\z/, ''),
                  map: map.to_s }
       end
       out.sort_by { |d| [d[:entity_type], d[:property]] }
     end
 
-    # All (meta_path, map) pairs across readable maps; .meta/<Type>/<prop>.json.
+    # All (meta_path, map) pairs across readable maps; <body>.info.
     # Distinct maps that resolve to the SAME directory yield the same physical
     # files repeatedly; deduplicate by real path and report the FIRST map that
     # provides it (map order = read order).
     def entity_meta_files
       read_maps.flat_map do |map|
-        dir = File.join(entities_dir(map), '.meta')
+        dir = entities_dir(map)
         next [] unless File.directory? dir
-        Dir.glob(File.join(dir, '**', '*.json')).sort.collect { |p| [p, map] }
+        Dir.glob(File.join(dir, '**', '*.rb.info')).sort.collect { |p| [p, map] }
       end
             .group_by { |path, _map| File.exist?(path) ? File.realpath(path) : path }
             .values
@@ -1397,7 +1397,7 @@ end
       type     = entity_type! entity_type.to_s
       property = entity_property_name! property.to_s
       dir      = entity_history_dir type, property, write_map
-      # .history lives in each readable map; report the write_map's own plus
+      # History lives in each readable map; report the write_map's own plus
       # any readable ones (per-type grouping, like entity_meta_files).
       files = read_maps.flat_map do |map|
         d = entity_history_dir type, property, map

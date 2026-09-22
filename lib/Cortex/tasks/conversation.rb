@@ -88,7 +88,7 @@ module Cortex
 
   input :conversation, :string, 'Brief name in the Cortex briefs namespace; it does not need to contain the agent name', nil, required: true, nofile: true, jobname: true
   input :prompt, :text, 'Prompt for the agent that will produce the brief', nil, required: true
-  input :agent, :string, 'Agent the brief is for (e.g. Worker); recorded in the briefs .meta sidecar and used to produce the brief', nil, required: true
+  input :agent, :string, 'Agent the brief is for (e.g. Worker); recorded in the briefs .info sidecar and used to produce the brief', nil, required: true
   input :tools, :array, 'Tool specs persisted in the brief body as tool:/introduce: chat messages; a briefed agent (cortex_continue --agent Agent/<brief>) receives exactly these tools. Grammar "Workflow [task [input|name=value ...]]": whole workflow "Baking" adds introduce: Baking plus tool: Baking (one tool per task, full inputs); "Workflow task [inputs...]" adds one tool: line, verbatim. name=value pre-fills the input and hides it from the model; bare names restrict the accepted inputs; noinputs/none as the sole input token exposes the task with no inputs. Specs are validated for syntax only and resolved at continue time (a workflow may be absent now and installed later). Give tools to REPLACE the brief tooling (tools: [] strips it all); omit tools to KEEP the existing tooling. JSON array of strings, never comma-split', nil
   input :reply, :boolean, 'Have the agent reply to the prompt and include the answer in the brief; false (default) stores the prompt only, with no inference pass', false
   dep :continue, chat: :placeholder do |jobname,options|

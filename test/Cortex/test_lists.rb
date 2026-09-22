@@ -81,8 +81,8 @@ class TestCortexLists < Test::Unit::TestCase
     Cortex.write_list('Composite', 'cell-cycle.md', %w(C01 C02), description: 'd')
     base = File.join(@proj_a, 'var/cortex/lists')
     assert File.exist?(File.join(base, 'Composite', 'cell-cycle.md'))
-    assert File.exist?(File.join(base, '.meta', 'Composite', 'cell-cycle.md.yaml')),
-           'sidecar must live at .meta/<entity_type>/<list>.yaml'
+    assert File.exist?(File.join(base, 'Composite', 'cell-cycle.md.info')),
+           'sidecar must live beside the list as <list>.info'
   end
 
   def test_nested_list_names
