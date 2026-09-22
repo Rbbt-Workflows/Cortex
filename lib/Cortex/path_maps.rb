@@ -115,6 +115,7 @@ module Cortex
   @@configured = nil
   @@chat_anchor = nil
   @@path_map_config = nil
+  @@map_order_config = nil
 
   def self.cortex_configured?
     !@@configured.nil?
@@ -170,20 +171,22 @@ module Cortex
     # never leaks a stale read-only marker from a previous anchor's yaml.
     CONFIGURED_READ_ONLY_MAPS.clear
 
-    yaml = path_map_config(anchor)
-    yaml.each do |name, spec|
+    yaml_maps = path_map_config(anchor)
+    yaml_maps.each do |name, spec|
       spec = {'dir' => spec} if String === spec
       dir = File.expand_path(spec['dir'].to_s)
       template = File.join(dir, '{TOPLEVEL}/{SUBPATH}')
       maps[name.to_sym] = template
       CONFIGURED_READ_ONLY_MAPS << name.to_sym if spec['read_only'].to_s == 'true'
     end
+    
+    yaml_order = map_order_config(anchor)
 
     CORTEX.path_maps = maps
-    CORTEX.map_order = default_map_order(yaml)
+    CORTEX.map_order = yaml_order || default_map_order(yaml_maps)
 
     @@configured = anchor
-    @@path_map_config = yaml
+    @@path_map_config = yaml_maps
     CORTEX
   end
 
@@ -227,6 +230,28 @@ module Cortex
     @@path_map_config
   end
 
+  # Read (and memoize) the anchor project's cortex_path_map.yaml.
+  # Lookup order: <anchor>/cortex_path_map.yaml then <anchor>/etc/cortex_path_map.yaml.
+  # Returns {} when there is no anchor or no file. A `maps:` section that is
+  # not a Hash raises (configuration must fail loudly, not silently).
+  def self.map_order_config(anchor = nil)
+    return {} if anchor.nil?
+    if @@map_order_config.nil?
+      config = begin
+                 file = [File.join(anchor, 'cortex_path_map.yaml'),
+                         File.join(anchor, 'etc', 'cortex_path_map.yaml')].find { |f| File.file?(f) }
+                 order = nil
+                 if file
+                   require 'yaml'
+                   doc = YAML.safe_load(Open.read(file)) || {}
+                   order = doc['order']
+                 end
+                 order
+               end
+      @@map_order_config = config
+    end
+    @@map_order_config
+  end
   # --- map queries (the public face used by storage/tasks) ------------
 
   # Every configured map name (instance table on CORTEX).

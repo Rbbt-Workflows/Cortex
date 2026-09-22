@@ -105,6 +105,7 @@ Additional maps come from a per-project `cortex_path_map.yaml` (project
 root or `etc/`), which attaches other projects' cortex stores to this
 one. Each entry names a map and points at the project root:
 
+```yaml
     maps:
       cortex:
         dir: /home/mvazque2/git/workflows/Cortex
@@ -113,6 +114,7 @@ one. Each entry names a map and points at the project root:
         read_only: true
       lib:
         dir: /home/mvazque2/git/workflows/Cortex
+```
 
 Yaml entries become instance-level maps attached to `CORTEX`; they never
 touch the global `Path.path_maps` table. Entries can redefine `:lib` and
@@ -127,6 +129,24 @@ tag the name with its map; ambiguity is always visible, never hidden.
 `cortex_move` transfers a resource between maps (rename and move are
 distinct operations: rename changes the logical name, move changes the
 map).
+
+Additionally, the file can specify the map order. When specified any
+path map not in the list will not be searched.
+
+```yaml
+    order: 
+        - current 
+        - lib
+    maps:
+      cortex:
+        dir: /home/mvazque2/git/workflows/Cortex
+      ags:
+        dir: /home/mvazque2/git/workflows/AGS
+        read_only: true
+      lib:
+        dir: /home/mvazque2/git/workflows/Cortex
+```
+
 
 ## Recommended use
 
