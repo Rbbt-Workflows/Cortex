@@ -69,6 +69,14 @@ class TestCortexCLI < Test::Unit::TestCase
     end
   end
 
+  def test_list_help_describes_default_and_pagination_options
+    script = Cortex::CLI.generate_script('cortex_list')
+    assert_includes script, 'If type is omitted, list artifacts'
+    %w[-t--type -p--prefix -o--offset -l--limit].each do |option|
+      assert_includes script, option
+    end
+  end
+
   def test_generated_scripts_give_every_option_a_short
     Cortex::CLI::POSITIONALS.keys.each do |task_name|
       script = File.join(Cortex::CLI.repo_root, 'share', 'scout_commands',

@@ -1,4 +1,5 @@
 # Command-line interface: `scout cortex`
+# Command-line interface: `scout cortex`
 
 `scout cortex list` defaults to `artifacts`; pass `--type all` to list every
 namespace. Its help documents `--type`, `--prefix`, `--offset`, and `--limit`.
@@ -16,21 +17,22 @@ scout cortex task cortex_activity --entity_type TF --entity TP53
 ```
 
 ## Layout
+`scout cortex list` defaults to `artifacts`; pass `--type all` to list every
+namespace. Its help shows namespace, prefix, offset, and limit options.
+
+
 ```
-share/scout_commands/cortex/     # generated command script per task
+share/scout_commands/cortex/     # one thin script per task
   list, read, write, edit, search, ...
   task                           # generic passthrough: first positional = task name
 lib/Cortex/cli.rb                # the actual implementation (Cortex::CLI)
 ```
 
-Dedicated subcommand scripts are generated from the common Scout command
-template by `Cortex::CLI.generate_script`; they are not identical thin
-dispatchers. Each script includes task-specific `SOPT.setup` help (summary,
-synopsis, and options generated from the task inputs), binds declared
-positionals, and dispatches to the corresponding Cortex workflow task. For
-example, `scout cortex list --help` documents the default type `artifacts`,
-`--type` (including `all`), `--prefix`, `--offset`, and `--limit`. The
-generated script basename omits the `cortex_` task prefix.
+Every subcommand script is the same 8 lines: a header comment naming the task
+it wraps, then `require_relative '../../../lib/Cortex/cli'` and
+`Cortex::CLI.dispatch '<task>'`. Adding a new Cortex task therefore only means
+dropping in one more script whose basename is the task name without the
+`cortex_` prefix.
 
 ## Implementation notes
 

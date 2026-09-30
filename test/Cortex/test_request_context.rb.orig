@@ -55,16 +55,6 @@ class TestCortexRequestContext < Test::Unit::TestCase
     assert_equal({region: 'parent'}, call[:options][:configuration])
   end
 
-  def test_caller_attribution_is_not_forwarded_as_inference_option
-    job, call = run_continue(caller: 'parent-chat', call_id: 'tool-call-7',
-                             function_name: 'cortex_continue')
-
-    assert_equal 'parent-chat', Cortex::RequestContext.for_step(job)[:caller]
-    refute call[:options].key?(:caller), call[:options].inspect
-    refute call[:options].key?(:call_id), call[:options].inspect
-    refute call[:options].key?(:function_name), call[:options].inspect
-  end
-
   def test_explicit_child_configuration_overrides_inherited_configuration
     chat = Chat.setup([
       {role: 'endpoint', content: 'child-endpoint'},

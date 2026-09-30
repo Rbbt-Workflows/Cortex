@@ -12,17 +12,18 @@ cmd = $0
 
 options = SOPT.setup <<~EOF
 
-  Read conversations, briefs, or artifacts
+Read conversations, briefs, or artifacts
 
-  $ #{cmd} [<options>] <name> <type>
+$ #{cmd} [<options>] <name> <type>
 
-  -h--help Print this help
-  -n--name* Name of the conversation, brief, artifact, or entity list (artifacts and lists may include subdirs, e.g. claims/C42.md or TF/C01)
-  -t--type* Namespace of the item to read
-  -l--last* Trailing N messages of a conversation/brief (full content)
-  -r--range* Inclusive message index range "a-b" (e.g. "0-3") of a conversation/brief
-  -s--start_line* First line to return for artifacts (1-based)
-  -li--lines* Maximum lines per artifact page
+
+-h--help Print this help
+-n--name* Name of the conversation, brief, artifact, or entity list (artifacts and lists may include subdirs, e.g. claims/C42.md or TF/C01)
+-t--type* Namespace of the item to read
+-l--last* Trailing N messages of a conversation/brief (full content)
+-r--range* Inclusive message index range "a-b" (e.g. "0-3") of a conversation/brief
+-s--start_line* First line to return for artifacts (1-based)
+-li--lines* Maximum lines per artifact page
 EOF
 if options[:help]
   if defined? scout_usage
@@ -39,7 +40,6 @@ name = ARGV.shift if name.nil?
 type = ARGV.shift if type.nil?
 
 raise MissingParameterException, :name if name.nil?
-raise MissingParameterException, :type if type.nil?
 
 options[:name] = name
 options[:type] = type

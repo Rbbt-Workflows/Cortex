@@ -16,12 +16,13 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] [<entity_type>] [<prefix>]
 
+
   -h--help Print this help
-  -et--entity_type* Filter by entity type (e.g. Gene); omit to list all types
-  -p--prefix* Only properties whose name starts with this prefix
-  -i--include_inactive Also list tombstoned/removed properties
-  -o--offset* Skip the first N entries
-  -l--limit* Return at most N entries per page
+-et--entity_type* Filter by entity type (e.g. Gene); omit to list all types
+-p--prefix* Only properties whose name starts with this prefix
+-i--include_inactive Also list tombstoned/removed properties
+-o--offset* Skip the first N entries
+-l--limit* Return at most N entries per page
 EOF
 if options[:help]
   if defined? scout_usage

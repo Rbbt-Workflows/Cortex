@@ -16,11 +16,12 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <name> <to>
 
+
   -h--help Print this help
-  -t--type* Namespace of the resource to move
-  -n--name* Logical name to move
-  -to--to* Target path map (configured map name, e.g. lib, chat, or a name from cortex_path_map.yaml)
-  -a--agent* Optional agent name recorded in the .meta version entry
+-t--type* Namespace of the resource to move
+-n--name* Logical name to move
+-to--to* Target path map (configured map name, e.g. lib, chat, or a name from cortex_path_map.yaml)
+-a--agent* Optional agent name recorded in the .info version entry
 EOF
 if options[:help]
   if defined? scout_usage

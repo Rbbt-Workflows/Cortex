@@ -16,12 +16,13 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <entity_type> <list> <entities>
 
+
   -h--help Print this help
-  -et--entity_type* Entity type of the list members (e.g. TF, Gene, Composite)
-  -l--list* List name (the file under var/cortex/lists/<entity_type>/; e.g. C01, cell-cycle)
-  -e--entities* Entities, one per line (newline separated)
-  -d--description* Optional description recorded in the .meta sidecar
-  -en--entity_options* Optional entity annotation options (JSON object, e.g. organism) recorded in the .meta sidecar and applied when the list is used as a property receiver
+-et--entity_type* Entity type of the list members (e.g. TF, Gene, Composite)
+-l--list* List name (the file under var/cortex/lists/<entity_type>/; e.g. C01, cell-cycle)
+-e--entities* Entities, one per line (newline separated)
+-d--description* Optional description recorded in the .info sidecar
+-en--entity_options* Optional entity annotation options (JSON object, e.g. organism) recorded in the .info sidecar and applied when the list is used as a property receiver
 EOF
 if options[:help]
   if defined? scout_usage

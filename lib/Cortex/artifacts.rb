@@ -24,7 +24,61 @@ module Cortex
     sidecar_paths(:artifacts, name, write_map)[0]
   end
 
-  def self.write_artifact(path, content, mode = :replace, job: nil, agent: nil, map: nil)
+  # Record artifact operations in the existing adjacent .info metadata. This
+  # is an artifact-scoped durable trace, not a second execution registry.
+  def self.execution_identity(execution)
+    identity = {'job' => execution.step_identity}
+    checkpoint = RequestContext.checkpoint(execution.request_context) if defined?(RequestContext)
+    identity['caller'] = checkpoint['caller'] if checkpoint && checkpoint['caller']
+    identity['main_chat'] = checkpoint['main_chat'] if checkpoint && checkpoint['main_chat']
+    identity
+  end
+
+  def self.persist_artifact_operation(name, map:, execution:, kind:, reference:, input_operation: nil)
+    mpath = sidecar_paths(:artifacts, name, map)[0]
+    Open.mkdir File.dirname(mpath)
+    metadata = File.exist?(mpath) ? JSON.parse(Open.read(mpath)) : {}
+    operations = metadata['operations'] ||= []
+    order = operations.length + 1
+    operation_id = "#{reference.logical_address}#operation-#{order}"
+    checkpoint = RequestContext.checkpoint(execution.request_context) if defined?(RequestContext)
+    operation = {
+      'id' => operation_id, 'order' => order, 'kind' => kind.to_s,
+      'resource' => {'namespace' => reference.namespace, 'name' => reference.name,
+                     'version' => reference.version, 'digest' => reference.digest},
+      'execution' => execution_identity(execution),
+      'job_receipt' => execution.step_identity
+    }
+    operation['caller'] = checkpoint['caller'] if checkpoint && checkpoint['caller']
+    operation['main_chat'] = checkpoint['main_chat'] if checkpoint && checkpoint['main_chat']
+    operations << operation
+    Open.write mpath, JSON.pretty_generate(metadata)
+    operation
+  end
+
+  def self.record_artifact_read(name, map:, execution:)
+    persist_artifact_operation(name, map: map, execution: execution, kind: :read,
+                               reference: artifact_reference(name, map: map))
+  end
+
+  def self.artifact_provenance(name, map: nil)
+    name = sanitize_resource_name!(name)
+    if map
+      map = map.to_sym
+      return nil unless File.exist?(resource_path(:artifacts, name, map))
+    else
+      path, map, = resolve_resource(:artifacts, name)
+      return nil unless path
+    end
+    metadata_path = sidecar_paths(:artifacts, name, map)[0]
+    metadata = File.file?(metadata_path) ? JSON.parse(Open.read(metadata_path)) : {}
+    {'resource' => {'namespace' => 'artifacts', 'name' => name},
+     'map' => map.to_s, 'operations' => Array(metadata['operations'])}
+  rescue JSON::ParserError => error
+    raise ScoutException, "Invalid artifact provenance metadata for #{name.inspect}: #{error.message}"
+  end
+
+  def self.write_artifact(path, content, mode = :replace, job: nil, agent: nil, map: nil, checkpoint: nil, execution: nil, operation_kind: :write, input_operation: nil)
     name = sanitize_resource_name! path
     map ||= write_map
     target = resource_path :artifacts, name, map
@@ -47,17 +101,41 @@ module Cortex
     Open.mkdir File.dirname(mpath)
     meta = File.exist?(mpath) ? JSON.parse(Open.read(mpath)) : {}
     versions = meta['versions'] || []
-    versions << { 'job' => job, 'agent' => agent, 'mode' => mode.to_s,
-                  'map' => map.to_s,
-                  'timestamp' => Time.now.strftime('%Y-%m-%d %H:%M:%S'),
-                  'size' => content.bytesize }
+    version = { 'job' => job, 'agent' => agent, 'mode' => mode.to_s,
+                'map' => map.to_s,
+                'timestamp' => Time.now.strftime('%Y-%m-%d %H:%M:%S'),
+                'size' => content.bytesize }
+    normalized_checkpoint = RequestContext.checkpoint(checkpoint) if defined?(RequestContext)
+    version['checkpoint'] = normalized_checkpoint if normalized_checkpoint
+    versions << version
     meta['versions'] = versions
-    Open.write mpath, JSON.pretty_generate(meta)
+    if execution
+      reference = ResourceReference.new(namespace: :artifacts, name: name, version: versions.length,
+                                        digest: Digest::SHA256.hexdigest(content))
+      operation = {
+        'id' => "#{name}#operation-#{Array(meta['operations']).length + 1}",
+        'order' => Array(meta['operations']).length + 1, 'kind' => operation_kind.to_s,
+        'resource' => {'namespace' => 'artifacts', 'name' => name, 'version' => versions.length,
+                       'digest' => Digest::SHA256.hexdigest(content)},
+        'execution' => execution_identity(execution), 'job_receipt' => execution.step_identity
+      }
+      input_operation = Array(meta['operations']).reverse.find do |candidate|
+        candidate['kind'] == 'read' && candidate.dig('execution', 'job') != execution.step_identity
+      end
+      if input_operation
+        operation['input_operation_id'] = input_operation['id']
+        operation['input_resource'] = input_operation['resource']
+      end
+      (meta['operations'] ||= []) << operation
+      Open.write mpath, JSON.pretty_generate(meta)
+    else
+      Open.write mpath, JSON.pretty_generate(meta)
+    end
 
     [name, content.bytesize, versions.length]
   end
 
-  def self.edit_artifact(name, find, replace, all: false, job: nil, agent: nil)
+  def self.edit_artifact(name, find, replace, all: false, job: nil, agent: nil, checkpoint: nil, execution: nil)
     raise ScoutException, 'find cannot be empty' if find.nil? || find.empty?
     raise ScoutException, 'replace must be a string' unless replace.is_a?(String)
     path, map, all_paths = resolve_resource :artifacts, name
@@ -75,7 +153,9 @@ module Cortex
     new_content = all ? content.gsub(find, replace) : content.sub(find, replace)
     # Reuse the write path so history snapshots and version records behave
     # identically for edits and full replacements.
-    _n, size, version = write_artifact name, new_content, :replace, job: job, agent: agent, map: map
+    _n, size, version = write_artifact name, new_content, :replace, job: job, agent: agent,
+                                       map: map, checkpoint: checkpoint, execution: execution,
+                                       operation_kind: :edit
     note = all_paths.length > 1 ? " [note] #{name} exists in more than one path map; edited :#{map}" : ''
     "Artifact edited: #{name} (#{occurrences} occurrence#{occurrences == 1 ? '' : 's'} replaced, #{size} bytes, v#{version})#{note}"
   end

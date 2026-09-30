@@ -1,0 +1,83 @@
+# Offline feasibility regression for one Scout-AI provider path.
+# The backend client factory is stubbed before SDK construction, and the fake
+# client's chat method only records the request; neither can send.
+require File.expand_path(__FILE__).sub(%r(/test/.*), '/test/Cortex/test_helper.rb')
+require 'scout/llm/backends/openai'
+require 'uri'
+
+class TestOpenAITransportSeam < Test::Unit::TestCase
+  class FakeClient
+    attr_reader :parameters
+
+    def chat(parameters:)
+      @parameters = parameters
+      :offline_response
+    end
+  end
+
+  def setup
+    @original_client = LLM::OpenAI.method(:client)
+    @original_config_get = Scout::Config.method(:get)
+    @original_get_url_config = LLM.method(:get_url_config)
+  end
+
+  def teardown
+    LLM::OpenAI.define_singleton_method(:client, @original_client)
+    Scout::Config.define_singleton_method(:get, @original_config_get)
+    LLM.define_singleton_method(:get_url_config, @original_get_url_config)
+  end
+
+  def test_explicit_loopback_url_reaches_fake_query_without_real_client
+    fake_client = FakeClient.new
+    factory_options = nil
+    LLM::OpenAI.define_singleton_method(:client) do |options|
+      factory_options = options.dup
+      uri = URI.parse(factory_options.fetch(:url))
+      unless uri.scheme == 'http' && uri.host == '127.0.0.1' &&
+             uri.port == 18765 && uri.path == '/v1' && uri.userinfo.nil?
+        raise "Non-loopback provider destination rejected: #{uri.host}"
+      end
+      fake_client
+    end
+    # Fail closed on configuration lookup. All options are explicit, and no
+    # credentials, environment variables, or provider profiles are read.
+    Scout::Config.define_singleton_method(:get) do |*|
+      raise 'Unexpected configuration lookup in explicit-URL probe'
+    end
+
+    options = {url: 'http://127.0.0.1:18765/v1', key: 'offline-test-key',
+               model: 'offline-test-model'}
+    client = LLM::OpenAI.prepare_client(options)
+    result = LLM::OpenAI.query(client, [{role: 'user', content: 'offline probe'}])
+
+    assert_same fake_client, client
+    assert_equal 'http://127.0.0.1:18765/v1', factory_options.fetch(:url)
+    assert_equal :offline_response, result
+    assert_equal [{role: 'user', content: 'offline probe'}], fake_client.parameters[:messages]
+  end
+
+  def test_missing_url_is_omitted_without_constructing_a_client
+    requested_keys = []
+    Scout::Config.define_singleton_method(:get) do |key, *|
+      requested_keys << key.to_sym
+      raise 'Unexpected non-URL configuration lookup' unless key.to_sym == :url
+      nil
+    end
+    # client_options ordinarily asks get_url_config for a key even when URL is
+    # absent. Replace that resolver so this test never consults credential
+    # configuration or secret-bearing environment variables.
+    LLM.define_singleton_method(:get_url_config) do |key, *|
+      raise 'Unexpected non-key configuration lookup' unless key.to_sym == :key
+      'offline-test-key'
+    end
+
+    options = LLM::OpenAI.client_options(model: 'offline-test-model')
+
+    assert_equal [:url], requested_keys
+    refute options.key?(:url)
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  Test::Unit::AutoRunner.run
+end

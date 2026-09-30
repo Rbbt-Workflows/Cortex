@@ -16,10 +16,11 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <entity_type> <list>
 
+
   -h--help Print this help
-  -et--entity_type* Entity type of the list (e.g. TF)
-  -l--list* List name under var/cortex/lists/<entity_type>/
-  -i--include_meta Also report the .meta sidecar (description, entity_options, provenance)
+-et--entity_type* Entity type of the list (e.g. TF)
+-l--list* List name under var/cortex/lists/<entity_type>/
+-i--include_meta Also report the .info sidecar (description, entity_options, provenance)
 EOF
 if options[:help]
   if defined? scout_usage

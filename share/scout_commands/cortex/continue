@@ -16,10 +16,11 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <conversation> <prompt>
 
+
   -h--help Print this help
-  -c--conversation* Conversation name in the Cortex conversations namespace
-  -p--prompt* Prompt to continue the conversation
-  -a--agent* Agent name; optionally Agent/brief_name to load a brief stored in the Cortex briefs namespace (e.g. Worker/math loads brief math for agent Worker)
+-c--conversation* Conversation name in the Cortex conversations namespace
+-p--prompt* Prompt to continue the conversation
+-a--agent* Agent name; optionally Agent/brief_name to load a brief stored in the Cortex briefs namespace (e.g. Worker/math loads brief math for agent Worker)
 EOF
 if options[:help]
   if defined? scout_usage

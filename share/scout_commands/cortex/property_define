@@ -16,19 +16,20 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <entity_type> <property>
 
+
   -h--help Print this help
-  -et--entity_type* Entity type (Ruby constant path, e.g. Gene)
-  -p--property* Property name (snake_case)
-  -b--body* Ruby body; the entity is the receiver, arguments are locals
-  -d--description* Human-readable description (documentation only)
-  -pr--property_type* Property arity: single entity, entity list, or both
-  -r--result_kind* Declared result kind (string, integer, float, array, tsv, json...)
-  -re--result_type* DEPRECATED alias of result_kind (accepted indefinitely, reported loudly)
-  -a--arguments* Argument specs in JSON [{name,type,description,required,default}]
-  -de--dependencies* Same-entity property names this property depends on
-  -t--test_entity* Entity identifier for a pre-activation smoke execution
-  -te--test_arguments* Arguments for the smoke execution (JSON object)
-  -ag--agent* Agent name recorded in provenance
+-et--entity_type* Entity type (Ruby constant path, e.g. Gene)
+-p--property* Property name (snake_case)
+-b--body* Ruby body; the entity is the receiver, arguments are locals
+-d--description* Human-readable description (documentation only)
+-pr--property_type* Property arity: single entity, entity list, or both
+-r--result_kind* Declared result kind (string, integer, float, array, tsv, json...)
+-re--result_type* DEPRECATED alias of result_kind (accepted indefinitely, reported loudly)
+-a--arguments* Argument specs in JSON [{name,type,description,required,default}]
+-de--dependencies* Same-entity property names this property depends on
+-t--test_entity* Entity identifier for a pre-activation smoke execution
+-te--test_arguments* Arguments for the smoke execution (JSON object)
+-ag--agent* Agent name recorded in provenance
 EOF
 if options[:help]
   if defined? scout_usage

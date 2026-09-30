@@ -478,6 +478,7 @@ module Cortex
   input :projection, :select, 'What to return of the SAME resolved Step: value (bounded payload), info (full .info sidecar), or path (the PATH STRING, not the bytes)', 'value', select_options: %w(value info path)
   input :max_bytes, :integer, 'Bounding for the value projection', 5000
   task :cortex_result => :json do |address, projection, max_bytes|
+    execution = Cortex::Execution.begin_task(self)
     resolution = begin
       Cortex::Properties.resolve_address(address)
     rescue ParameterException => e
@@ -498,7 +499,7 @@ module Cortex
     base = { address: resolution[:address], recovered: resolution[:recovered] }
     base[:recovered_from] = resolution[:recovered_from] if resolution[:recovered]
 
-    case projection.to_s
+    result = case projection.to_s
     when 'value'
       status = begin step.status rescue nil end
       begin
@@ -537,6 +538,8 @@ module Cortex
     else
       raise ScoutException, "Unknown projection #{projection.inspect}"
     end
+    Cortex.record_computation_use(execution, step) if projection.to_s == 'value' && step.done?
+    result
   end
 
 end

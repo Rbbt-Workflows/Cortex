@@ -16,11 +16,12 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <entity_type> <property>
 
+
   -h--help Print this help
-  -et--entity_type* Entity type (Ruby constant path, e.g. Gene)
-  -p--property* Property name (snake_case)
-  -e--expected_version* Version being removed (optimistic concurrency)
-  -a--agent* Agent name recorded in provenance
+-et--entity_type* Entity type (Ruby constant path, e.g. Gene)
+-p--property* Property name (snake_case)
+-e--expected_version* Version being removed (optimistic concurrency)
+-a--agent* Agent name recorded in provenance
 EOF
 if options[:help]
   if defined? scout_usage

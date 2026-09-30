@@ -16,9 +16,10 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <name> <type>
 
+
   -h--help Print this help
-  -t--type* Namespace of the resource to remove
-  -n--name* Logical name to remove
+-t--type* Namespace of the resource to remove
+-n--name* Logical name to remove
 EOF
 if options[:help]
   if defined? scout_usage

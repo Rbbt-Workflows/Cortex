@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# scout cortex list -- List workspace namespaces with metadata only
+# scout cortex list -- List workspace namespace metadata (default: artifacts)
 
 require 'scout'
 
@@ -12,15 +12,19 @@ cmd = $0
 
 options = SOPT.setup <<~EOF
 
-  List workspace namespaces with metadata only
+List workspace namespace metadata (default: all)
 
-  $ #{cmd} [<options>] [<type>] [<prefix>]
+$ #{cmd} [<options>] [<type>] [<prefix>]
 
-  -h--help Print this help
-  -t--type* Namespace to list: conversations, briefs, artifacts, entities, lists, properties (executions), or all (every namespace with counts)
-  -p--prefix* Only names starting with this prefix
-  -o--offset* Skip the first N entries (pagination)
-  -l--limit* Maximum entries per page
+List the selected namespace with pagination.
+If type is omitted, list artifacts; use type=all to show every namespace. Pass --prefix, --offset and --limit to narrow or paginate results.
+
+
+-h--help Print this help
+-t--type* Namespace to list: conversations, briefs, artifacts, entities, lists, properties (executions), or all (every namespace with counts)
+-p--prefix* Only names starting with this prefix
+-o--offset* Skip the first N entries (pagination)
+-l--limit* Maximum entries per page
 EOF
 if options[:help]
   if defined? scout_usage
@@ -35,8 +39,6 @@ type, prefix = IndiferentHash.process_options options, :type, :prefix
 
 type = ARGV.shift if type.nil?
 prefix = ARGV.shift if prefix.nil?
-
-
 
 options[:type] = type
 options[:prefix] = prefix

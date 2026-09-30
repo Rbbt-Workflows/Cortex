@@ -20,7 +20,12 @@ module Cortex
   # Deterministic: sorted by (property, receiver, address).
   def self.step_evidence(entity_type = nil, property = nil)
     rows = []
-    root = Workflow.directory.find.to_s
+    # Evidence discovery is deliberately limited to the checkout's current
+    # jobs tree. Workflow.directory.find can resolve through fallback maps
+    # (for example ~/.scout) and make unrelated historical jobs look current.
+    # ScoutCoder: Path#follow(:current) applies exactly the current map without
+    # searching; use it rather than #find when evidence must be checkout-local.
+    root = Path.setup('var/jobs').follow(:current).to_s
     Dir.glob(File.join(root, '*', '*', '*.info')).sort.each do |info_path|
       wf, task, _label = info_path.sub(root + File::SEPARATOR, '').split(File::SEPARATOR)
       next unless entity_type.nil? || wf == entity_type.to_s

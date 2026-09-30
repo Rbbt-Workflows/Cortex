@@ -13,16 +13,27 @@ module Cortex
 
     CONFIG_KEYS = %i[endpoint backend model configuration config].freeze
 
+    # These are optional, call-scoped trace fields. They are deliberately
+    # separate from provider configuration: a call id is only meaningful
+    # together with the conversation/save-file which owns it.
+    CHECKPOINT_ALIASES = {
+      conversation: %i[conversation],
+      caller: %i[caller],
+      main_chat: %i[main_chat],
+      call_id: %i[call_id tool_call_id],
+      function_name: %i[function_name tool_name]
+    }.freeze
+
     module_function
 
     def project(context)
       return {} unless context
-      if defined?(LLM::RequestContext)
-        value = LLM::RequestContext.project(context)
-        Hash === value ? value : {}
-      else
-        {}
-      end
+      value = if defined?(LLM::RequestContext)
+                LLM::RequestContext.project(context)
+              else
+                context
+              end
+      Hash === value ? value : {}
     end
 
     def immutable(value)
@@ -164,6 +175,29 @@ module Cortex
     rescue
       {}
     end
+
+    # context. This accessor never derives an id from a Step path, process,
+    # timestamp, or other global state. A provider call id remains chat-scoped
+    # and should be paired with conversation/save_file when either is present.
+    # Passing a Step makes the intended pre-execution attachment API explicit
+    # for callers that can attach context before a task runs.
+    def checkpoint(value)
+      context = Step === value ? for_step(value) : project(value)
+      return nil unless Hash === context
+
+      result = {}
+      CHECKPOINT_ALIASES.each do |canonical, aliases|
+        key = aliases.find { |candidate| context.key?(candidate) || context.key?(candidate.to_s) }
+        next unless key
+        field = context[key] || context[key.to_s]
+        next unless String === field || Numeric === field
+        result[canonical.to_s] = field.to_s
+      end
+      result.empty? ? nil : immutable(result)
+    rescue
+      nil
+    end
+    alias checkpoint_for checkpoint
 
     def explicit_options(messages)
       return {} unless messages

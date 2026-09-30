@@ -16,12 +16,13 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <name> <find> <replace>
 
+
   -h--help Print this help
-  -n--name* Artifact path relative to var/cortex/artifacts
-  -f--find* Exact text to find in the artifact
-  -r--replace* Replacement text
-  -a--all Replace every occurrence (required when find matches more than once)
-  -ag--agent* Optional agent name recorded in the .meta version entry
+-n--name* Artifact path relative to var/cortex/artifacts
+-f--find* Exact text to find in the artifact
+-r--replace* Replacement text
+-a--all Replace every occurrence (required when find matches more than once)
+-ag--agent* Optional agent name recorded in the .info version entry
 EOF
 if options[:help]
   if defined? scout_usage

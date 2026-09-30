@@ -10,12 +10,8 @@ module Cortex
   input :mode, :select, 'replace overwrites (with history snapshot); append adds to the end, creating if absent', 'replace', select_options: %w(replace append)
   input :agent, :string, 'Optional agent name recorded in the .info version entry', nil
   task :cortex_write => :text do |path,content,mode,agent|
-    execution = Cortex::Execution.begin_task(self)
-    name, size, version = Cortex.write_artifact(path, content, mode, job: execution.step.short_path, agent: agent,
-                                                 checkpoint: Cortex::RequestContext.checkpoint(execution.request_context),
-                                                 execution: execution, operation_kind: :write)
-    reference = Cortex::ResourceReference.new(namespace: :artifacts, name: name, version: version)
-    execution.record_operation(Cortex::Operation.new(execution: execution, name: :write, resource_reference: reference))
+    name, size, version = Cortex.write_artifact(path, content, mode, job: self.short_path, agent: agent,
+                                                 checkpoint: Cortex::RequestContext.checkpoint(self))
     "Artifact written: #{name} (#{size} bytes, v#{version})"
   end
 
@@ -25,13 +21,8 @@ module Cortex
   input :all, :boolean, 'Replace every occurrence (required when find matches more than once)', false
   input :agent, :string, 'Optional agent name recorded in the .info version entry', nil
   task :cortex_edit => :text do |name,find,replace,all,agent|
-    execution = Cortex::Execution.begin_task(self)
-    output = Cortex.edit_artifact(name, find, replace, all: all, job: execution.step.short_path, agent: agent,
-                                  checkpoint: Cortex::RequestContext.checkpoint(execution.request_context),
-                                  execution: execution)
-    reference = Cortex.artifact_reference(name, map: Cortex.resolve_resource(:artifacts, name)[1])
-    execution.record_operation(Cortex::Operation.new(execution: execution, name: :edit, resource_reference: reference))
-    output
+    Cortex.edit_artifact(name, find, replace, all: all, job: self.short_path, agent: agent,
+                          checkpoint: Cortex::RequestContext.checkpoint(self))
   end
 
   input :type, :select, "Namespace of the resource to rename", nil, {select_options: Cortex::NAMESPACES - ['properties'], required: true, jobname: true}

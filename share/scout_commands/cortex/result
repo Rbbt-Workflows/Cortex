@@ -16,10 +16,11 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <address>
 
+
   -h--help Print this help
-  -a--address* Address of a materialized result: <Type>/<property>/<label> short_path, a var/jobs-prefixed path, or a full filesystem path
-  -p--projection* What to return of the SAME resolved Step: value (bounded payload), info (full .info sidecar), or path (the PATH STRING, not the bytes)
-  -m--max_bytes* Bounding for the value projection
+-a--address* Address of a materialized result: <Type>/<property>/<label> short_path, a var/jobs-prefixed path, or a full filesystem path
+-p--projection* What to return of the SAME resolved Step: value (bounded payload), info (full .info sidecar), or path (the PATH STRING, not the bytes)
+-m--max_bytes* Bounding for the value projection
 EOF
 if options[:help]
   if defined? scout_usage

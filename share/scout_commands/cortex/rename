@@ -16,11 +16,12 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <name> <new_name>
 
+
   -h--help Print this help
-  -t--type* Namespace of the resource to rename
-  -n--name* Current logical name
-  -ne--new_name* New logical name
-  -a--agent* Optional agent name recorded in the .meta version entry
+-t--type* Namespace of the resource to rename
+-n--name* Current logical name
+-ne--new_name* New logical name
+-a--agent* Optional agent name recorded in the .info version entry
 EOF
 if options[:help]
   if defined? scout_usage

@@ -124,6 +124,14 @@ class TestCortexListing < Test::Unit::TestCase
     refute text =~ /:[a-z]+\t\d+\t/, 'no :map suffix glued onto any name'
   end
 
+  def test_nil_type_defaults_to_artifacts
+    Cortex.write_artifact('claims/default.md', 'x', :replace, job: 't', agent: 't')
+    text = Cortex.listing_text(nil)
+    assert_includes text, "#name\tmap\tbytes\tmtime"
+    assert_includes text, "claims/default.md\tcurrent\t"
+    refute_includes text, "#name\tmap\tmessages\tbytes\tmtime"
+  end
+
   def test_list_rows_carry_separate_map_column
     Cortex.write_list('TF', 'C01', "TP53\nMYC\n", description: 'd')
     rows = Cortex.namespace_listing('lists')

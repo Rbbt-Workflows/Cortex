@@ -16,11 +16,12 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <entity_type> <entity>
 
+
   -h--help Print this help
-  -et--entity_type* Entity type (Ruby constant path, e.g. Gene)
-  -e--entity* Entity identifier (e.g. FOXO1)
-  -l--limit* Max items per section
-  -f--facets* Comma-separated facet list; empty = all (properties, investigations, lists, mentions)
+-et--entity_type* Entity type (Ruby constant path, e.g. Gene)
+-e--entity* Entity identifier (e.g. FOXO1)
+-l--limit* Max items per section
+-f--facets* Comma-separated facet list; empty = all (properties, investigations, lists, mentions)
 EOF
 if options[:help]
   if defined? scout_usage

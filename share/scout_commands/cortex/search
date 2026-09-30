@@ -16,10 +16,11 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <query> [<type>]
 
+
   -h--help Print this help
-  -q--query* Keyword(s) to search for; multiple terms are ANDed
-  -t--type* Restrict search: conversations, briefs, artifacts, lists, properties (executions), or all
-  -l--limit* Maximum number of matches to return
+-q--query* Keyword(s) to search for; multiple terms are ANDed
+-t--type* Restrict search: conversations, briefs, artifacts, lists, properties (executions), or all
+-l--limit* Maximum number of matches to return
 EOF
 if options[:help]
   if defined? scout_usage

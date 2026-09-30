@@ -107,7 +107,7 @@ module Cortex
     # Summary line of each command (the title of SOPT.doc).
     SUMMARIES = {
       'cortex_task' => 'Run any Cortex workflow task by name',
-      'cortex_list' => 'List workspace namespaces with metadata only',
+      'cortex_list' => 'List workspace namespace metadata (default: all)',
       'cortex_read' => 'Read conversations, briefs, or artifacts',
       'cortex_search' => 'Lexically search conversation, brief, and artifact contents',
       'cortex_activity' => 'Report accumulated workspace activity around ONE entity',
@@ -129,6 +129,11 @@ module Cortex
       'cortex_property_remove' => 'Remove a property definition (history is kept)',
       'cortex_property_run' => 'Run a property for one entity or a named list; returns the run receipt (design 2.3/2.7)',
       'cortex_result' => 'Resolve a materialized result address; value, info, or path projection (design 2.4)',
+    }.freeze
+
+    # Optional longer command explanation, rendered after the short summary.
+    DESCRIPTIONS = {
+      'cortex_list' => "List the selected namespace with pagination.\nIf type is omitted, list all. Pass --prefix, --offset and --limit to narrow or paginate results."
     }.freeze
 
     # Inputs declared :array but documented as JSON payloads must never be
@@ -241,6 +246,7 @@ module Cortex
 
         script_name = task_name.to_s.sub('cortex_', '')
         summary = summary_for(task_name)
+        description = DESCRIPTIONS[task_name.to_s]
         positionals = positionals_for(task_name) || []
         tuples = input_tuples(task)
         required = tuples.select { |_n, _t, _d, _df, o| o[:required] }.collect(&:first)
@@ -251,6 +257,7 @@ module Cortex
 
         # option lines, indented inside the SOPT.setup heredoc
         options_block = option_lines_for(task_name).collect { |l| "  #{heredoc_escape(l)}" } * "\n"
+        description_block = description ? "\n            #{heredoc_escape(description).gsub("\n", "\n            ")}\n" : ''
 
         # locals extracted in the template tail: positionals in binding
         # order, then required non-positional inputs
@@ -279,6 +286,7 @@ module Cortex
             #{heredoc_escape(summary)}
 
             $ \#{cmd} [<options>]#{pos_str}
+#{description_block}
 
           #{options_block}
           EOF

@@ -91,6 +91,27 @@ class TestRegistryRetirement < Test::Unit::TestCase
   # ------------------------------------------------------------------
   # The guard: NO code path writes var/cortex/properties anymore
   # ------------------------------------------------------------------
+  def test_step_evidence_only_uses_current_jobs_root
+    current_root = Path.setup('var/jobs').follow(:current).to_s
+    fallback_root = File.join(SCRATCH, 'fallback', 'var/jobs')
+    assert_not_equal current_root, fallback_root, 'test requires distinct current/fallback roots'
+
+    [current_root, fallback_root].each do |root|
+      info_dir = File.join(root, 'ProbeType', 'echo')
+      FileUtils.mkdir_p(info_dir)
+      label = root == current_root ? 'CURRENT0000000000000000000000000000' : 'FALLBACK00000000000000000000000000'
+      File.write(File.join(info_dir, "#{label}.info"), JSON.generate(
+        status: 'done',
+        input_names: %w[probe_type _cortex_definition _cortex_definition_version _cortex_definition_digest],
+        inputs: [label, 'ProbeType/echo', '1', 'digest']
+      ))
+    end
+
+    rows = Cortex.step_evidence('ProbeType', 'echo')
+    assert_equal ['CURRENT0000000000000000000000000000'], rows.collect { |r| r['receiver'] }
+    assert_equal ['CURRENT0000000000000000000000000000'], rows.collect { |r| r['address'].split('/').last }
+  end
+
   def test_full_cycle_writes_nothing_under_properties
     define('Step5A', 'risky', body: 'raise ScoutException if entity.to_s == "B"; "ok:" + entity.to_s')
     snapshot = proc do

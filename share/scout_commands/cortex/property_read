@@ -16,11 +16,12 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <entity_type> <property>
 
+
   -h--help Print this help
-  -et--entity_type* Entity type of the property (e.g. Gene)
-  -p--property* Property name
-  -s--start_line* First body line to return (1-based; 0 = interface only)
-  -l--lines* Max body lines to return per page (0 = all remaining)
+-et--entity_type* Entity type of the property (e.g. Gene)
+-p--property* Property name
+-s--start_line* First body line to return (1-based; 0 = interface only)
+-l--lines* Max body lines to return per page (0 = all remaining)
 EOF
 if options[:help]
   if defined? scout_usage

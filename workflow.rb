@@ -8,6 +8,9 @@ $LOAD_PATH.unshift lib unless $LOAD_PATH.include?(lib)
 require 'Cortex/path_maps'
 require 'Cortex/storage'
 require 'Cortex/request_context'
+# This internal core must follow workflow.rb reloads: required files are cached
+# by Ruby, while the live workflow entrypoint is re-evaluated after edits.
+load File.join(lib, 'Cortex/execution_operation.rb')
 require 'Cortex/conversations'
 require 'Cortex/briefs'
 require 'Cortex/artifacts'
@@ -119,11 +122,16 @@ module Cortex
     inherited = Cortex::RequestContext.effective_for(self, agent, chat)
     unless inherited.empty?
       # Agent#ask consumes endpoint/backend/model from other_options; the
-      # request_context ivar alone only preserves provenance. Merge inherited
-      # values as defaults so explicitly supplied agent/brief/child values
-      # remain authoritative and no chat message is created.
+      # request_context ivar preserves attribution. Only inference
+      # configuration belongs in other_options: caller/call_id/function_name
+      # are transport metadata and would otherwise reach endpoint arguments.
+      # Merge inherited configuration as defaults so explicitly supplied
+      # agent/brief/child values remain authoritative.
       owned = agent.other_options || {}
-      agent.other_options = IndiferentHash.setup(inherited.merge(owned))
+      inference_options = inherited.select do |key, _value|
+        Cortex::RequestContext::CONFIG_KEYS.include?(key.to_sym)
+      end
+      agent.other_options = IndiferentHash.setup(inference_options.merge(owned))
       agent.request_context = inherited
     end
     # scout-ai 2.0.0 has no LLM::Agent.canonical_chat_file; the canonical

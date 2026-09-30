@@ -18,7 +18,7 @@ module Cortex
   VALID_TYPES = NAMESPACES.dup.freeze
 
   def self.validate_type!(type)
-    type = 'all' if type.nil?
+    type = 'artifacts' if type.nil?
     type = type.to_s
     return type if type == 'all' || VALID_TYPES.include?(type)
     raise ScoutException, "Unknown Cortex namespace type #{type.inspect}; valid types: #{VALID_TYPES * ', '} (or 'all')"
@@ -148,6 +148,7 @@ module Cortex
   end
 
   def self.listing_text(type, prefix = nil, offset = 0, limit = DEFAULT_LIST_LIMIT)
+    type = 'artifacts' if type.nil?
     if type == 'all'
       VALID_TYPES.collect { |t| paginated_section(t, prefix, offset, limit) } * "\n" + "\n"
     else
@@ -317,6 +318,22 @@ module Cortex
       out << conversation_index(chat)
     end
     out * "\n"
+  end
+
+  # Observe an existing producer revision, when the selected path already has
+  # version metadata. This is read-only and never invents a digest.
+  def self.artifact_reference(name, map:)
+    reference = ResourceReference.new(namespace: :artifacts, name: name)
+    info_path = sidecar_paths(:artifacts, name, map).first
+    return reference unless File.file?(info_path)
+    metadata = JSON.parse(Open.read(info_path))
+    versions = metadata['versions']
+    return reference unless Array === versions && !versions.empty?
+    version = versions.length
+    ResourceReference.new(namespace: :artifacts, name: name,
+                          version: version, digest: versions[version - 1] && versions[version - 1]['digest'])
+  rescue JSON::ParserError
+    reference
   end
 
   def self.read_artifact(name, start_line, lines)

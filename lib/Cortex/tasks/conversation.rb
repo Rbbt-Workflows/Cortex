@@ -77,10 +77,11 @@ module Cortex
     continue = step(:continue)
     claim = continue.provided_inputs[:cortex_continue_claim] rescue nil
     begin
+      execution = Cortex::Execution.new(step: continue)
       res = continue.load
       res = Chat.setup(res)
       save_conversation conversation, prompt, res
-      {meta: [{job: continue.short_path}], content: res.answer}
+      {meta: [{job: execution.step.short_path}], content: res.answer}
     ensure
       Cortex.release_continue_claim(claim)
     end

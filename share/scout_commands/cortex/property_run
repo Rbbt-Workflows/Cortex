@@ -16,16 +16,17 @@ options = SOPT.setup <<~EOF
 
   $ #{cmd} [<options>] <entity_type> <property>
 
+
   -h--help Print this help
-  -et--entity_type* Entity type (Ruby constant path, e.g. Gene)
-  -p--property* Property name
-  -e--entity* Entity id (single receiver; never together with list). An inline JSON array is accepted and fans out
-  -l--list* Named list <entity_type>/<list> (never together with entity)
-  -a--arguments* Property arguments (JSON object, never positional)
-  -en--entity_options* Entity annotation options (JSON object)
-  -u--update Clean the property job(s) and recompute
-  -t--timeout* Execution timeout in seconds; omit to use the configured default (config key timeout, tokens entity_property/cortex; env CORTEX_ENTITY_PROPERTY_TIMEOUT; default 3600). 0/false/none = unbounded
-  -ag--agent* Agent name recorded in provenance
+-et--entity_type* Entity type (Ruby constant path, e.g. Gene)
+-p--property* Property name
+-e--entity* Entity id (single receiver; never together with list). An inline JSON array is accepted and fans out
+-l--list* Named list <entity_type>/<list> (never together with entity)
+-a--arguments* Property arguments (JSON object, never positional)
+-en--entity_options* Entity annotation options (JSON object)
+-u--update Clean the property job(s) and recompute
+-t--timeout* Execution timeout in seconds; omit to use the configured default (config key timeout, tokens entity_property/cortex; env CORTEX_ENTITY_PROPERTY_TIMEOUT; default 3600). 0/false/none = unbounded
+-ag--agent* Agent name recorded in provenance
 EOF
 if options[:help]
   if defined? scout_usage

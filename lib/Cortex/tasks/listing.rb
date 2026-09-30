@@ -6,6 +6,7 @@
 module Cortex
 
   input :type, :select, "Namespace to list: conversations, briefs, artifacts, entities, lists, properties (executions), or all (every namespace with counts)", 'all', select_options: %w(conversations briefs artifacts entities lists properties all)
+  # ScoutCoder: task input descriptions render as individual CLI options; the first one is the SOPT summary.
   input :prefix, :string, 'Only names starting with this prefix', nil
   input :offset, :integer, 'Skip the first N entries (pagination)', 0
   input :limit, :integer, 'Maximum entries per page', 50
@@ -38,12 +39,15 @@ module Cortex
   end
 
   input :name, :string, 'Name of the conversation, brief, artifact, or entity list (artifacts and lists may include subdirs, e.g. claims/C42.md or TF/C01)', nil, required: true, nofile: true
-  input :type, :select, "Namespace of the item to read", nil, {select_options: %w(conversations briefs artifacts lists properties), required: true, jobname: true}
+  input :type, :select, "Namespace of the item to read", 'artifacts', select_options: %w(conversations briefs artifacts lists properties)
   input :last, :integer, 'Trailing N messages of a conversation/brief (full content)', nil
   input :range, :string, 'Inclusive message index range "a-b" (e.g. "0-3") of a conversation/brief', nil
   input :start_line, :integer, 'First line to return for artifacts (1-based)', 1
   input :lines, :integer, 'Maximum lines per artifact page', 200
   task :cortex_read => :text do |name,type,last,range,start_line,lines|
+    # The task block is evaluated with its exact Scout Step as `self`. Keep the
+    # consumer operation on a per-invocation Execution, never ambient/global state.
+    execution = Cortex::Execution.begin_task(self)
     type = Cortex.validate_type! type
     raise ScoutException, "Unknown Cortex namespace type #{type.inspect}" if type == 'all'
     case type
@@ -51,7 +55,14 @@ module Cortex
       Cortex.read_conversation(name, type, last, range)
     when 'artifacts'
       start_line = 1 if start_line.nil? || start_line < 1
-      Cortex.read_artifact(name, start_line, lines)
+      _path, map, = Cortex.resolve_resource(:artifacts, name)
+      persisted_reference = Cortex.artifact_reference(name, map: map)
+      output = Cortex.read_artifact(name, start_line, lines)
+      execution.record_operation(Cortex::Operation.new(execution: execution, name: :read,
+                                                       resource_reference: persisted_reference))
+      Cortex.persist_artifact_operation(name, map: map, execution: execution, kind: :read,
+                                        reference: persisted_reference)
+      output
     when 'lists'
       entity_type, list = name.split(File::SEPARATOR, 2)
       entities, meta, _path, map, all_paths = Cortex.read_list(entity_type, list)
