@@ -20,23 +20,20 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
   rewrite
   rewrite.analyze
 
+  cortex_continue
+
+  cli
  }
  lib=lib {
   Cortex=Cortex{
    activity.rb
-   activity=activity{
-    context.rb
-    investigations_facet.rb
-    lists_facet.rb
-    mentions_facet.rb
-    properties_facet.rb
-   }
    artifacts.rb
    briefs.rb
    cli.rb
    conversations.rb
    entities.rb
    evidence.rb
+   execution_operation.rb
    helpers.rb
    listing.rb
    lists.rb
@@ -44,8 +41,16 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
    properties.rb
    properties_run.rb
    receipt.rb
+   request_context.rb
    storage.rb
    types.rb
+   activity=activity{
+    context.rb
+    investigations_facet.rb
+    lists_facet.rb
+    mentions_facet.rb
+    properties_facet.rb
+   }
    tasks=tasks{
     activity.rb
     artifact.rb
@@ -57,6 +62,34 @@ Cortex=/$PWD filter="*.rb *.rake Rakefile *.rdoc *.R *.sh *.js *.haml *.sass *.t
   }
  }
  share=share filter="*"{
+  scout_commands=scout_commands{
+   cortex=cortex{
+    activity
+    brief
+    continue
+    edit
+    generate
+    list
+    move
+    property_define
+    property_history
+    property_list
+    property_read
+    property_remove
+    property_run
+    property_update
+    property_validate
+    read
+    read_list
+    remove
+    rename
+    result
+    search
+    task
+    write
+    write_list
+   }
+  }
  }
  data=data filter="*"{
  }
