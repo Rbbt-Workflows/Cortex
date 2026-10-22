@@ -152,11 +152,11 @@ module Cortex
   export_exec :cortex_list, :cortex_search, :cortex_read, :cortex_write,
          :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move,
          :cortex_write_list, :cortex_read_list,
-         :cortex_property_list, :cortex_property_read, :cortex_property_history,
-         :cortex_property_validate, :cortex_property_define, :cortex_property_update,
-         :cortex_property_remove,
-         :cortex_property_run, :cortex_result,
-         :cortex_activity
+         #:cortex_property_list, :cortex_property_read, :cortex_property_history,
+         #:cortex_property_validate, :cortex_property_define, :cortex_property_update,
+         #:cortex_property_remove,
+         :cortex_property_run, 
+         :cortex_result, :cortex_activity
 end
 
 # Entity engine (storage + lifecycle + compiler) followed by the thin task
