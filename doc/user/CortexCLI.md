@@ -12,7 +12,6 @@ scout cortex list -t artifacts
 scout cortex search --query TP53 --type artifacts
 scout cortex read claims/C42.md artifacts --lines 100
 scout cortex write claims/C42.md --content "Claim: ..."
-scout cortex task cortex_activity --entity_type TF --entity TP53
 ```
 
 ## Layout

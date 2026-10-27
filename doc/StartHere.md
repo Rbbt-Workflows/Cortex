@@ -1,20 +1,16 @@
 # Start Here
 
 Cortex is a persistent research workspace for Scout-AI agents. It keeps named
-conversations, agent briefs, durable artifacts, and executable entity
-properties under `var/cortex/` organized in namespaces
-(`conversations/`, `briefs/`, `artifacts/`, `entities/`, `lists/`; managed
-resources use adjacent `.info` sidecars and `.files/history/` version storage), and exposes twenty-one tools
+conversations, agent briefs, and durable artifacts under `var/cortex/`
+organized in three namespaces (`conversations/`, `briefs/`, `artifacts/`;
+managed resources use adjacent `.info` sidecars and `.files/history/`
+version storage), and exposes ten tools
 (`cortex_continue`, `cortex_brief`, `cortex_list`, `cortex_search`,
 `cortex_read`, `cortex_write`, `cortex_edit`, `cortex_rename`,
-`cortex_remove`, `cortex_move`, plus the property tools
-`cortex_property_list`, `cortex_property_read`, `cortex_property_history`,
-`cortex_property_validate`, `cortex_property_define`,
-`cortex_property_update`, `cortex_property_remove`,
-`cortex_property_run` and `cortex_result`, plus
-`cortex_write_list`/`cortex_read_list` for
-named entity lists and `cortex_activity` for read-only recall around one
-entity) that any agent gets automatically when working through Cortex.
+`cortex_remove`, `cortex_move`) that any agent gets automatically when
+working through Cortex. Entity support now lives in the Semantics workflow,
+and tracking scientific evidence is the responsibility of the Research
+workflow.
 
 Cortex is a thin layer over scout-ai's `AgentWorkflow`: the only inference
 primitive is a `chat_task` called `continue`; everything else is storage,
@@ -28,16 +24,14 @@ Read the [user documentation](user/). It explains the workspace layout,
 briefing agents, continuing conversations, searching and reading research
 objects, writing and managing artifacts, and following delegation receipts.
 For command-line access the same tasks are wrapped as `scout cortex`
-subcommands — see [user/CortexCLI.md](user/CortexCLI.md).
+subcommands ([user/CortexCLI.md](user/CortexCLI.md)).
 
 ### I want to change how Cortex works
 
 Read the [developer documentation](developer/). It covers the architecture,
 the path-map storage abstraction behind all tools, artifact versioning and
-provenance, tool exposure, the receipt mechanism, and the
-[Cortex-managed entities](developer/Entities.md) engine. Known gaps and
-deliberately deferred work are tracked in
-[Improvements](developer/Improvements.md).
+provenance, tool exposure, and the receipt mechanism. Known gaps and
+deliberately deferred work are tracked in [Improvements](developer/Improvements.md).
 
 ### I want to know why it looks like this
 
