@@ -10,6 +10,7 @@ module Cortex
   input :offset, :integer, 'Skip the first N entries (pagination)', 0
   input :limit, :integer, 'Maximum entries per page', 50
   task :cortex_list => :text do |type,prefix,offset,limit|
+    Cortex.validate_type!(type) unless type == 'all'
     listing_text(type, prefix, offset, limit)
   end
 

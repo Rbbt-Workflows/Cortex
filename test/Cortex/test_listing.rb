@@ -120,6 +120,15 @@ class TestCortexListing < Test::Unit::TestCase
     refute text =~ /:[a-z]+\t\d+\t/, 'no :map suffix glued onto any name'
   end
 
+  def test_validate_type_rejects_unknown_type_with_scout_exception
+    e = assert_raise(ScoutException) { Cortex.validate_type!('bogus') }
+    assert_includes e.message, 'Unknown Cortex namespace type "bogus"'
+    assert_includes e.message, 'conversations, briefs, artifacts'
+    # nil falls back to artifacts, 'all' is accepted verbatim
+    assert_equal 'artifacts', Cortex.validate_type!(nil)
+    assert_equal 'all', Cortex.validate_type!('all')
+  end
+
   def test_nil_type_defaults_to_artifacts
     Cortex.write_artifact('claims/default.md', 'x', :replace, job: 't', agent: 't')
     text = Cortex.listing_text(nil)
