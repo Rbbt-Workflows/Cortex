@@ -5,51 +5,42 @@
 
 module Cortex
 
-  input :type, :select, "Namespace to list: conversations, briefs, artifacts, entities, lists, properties (executions), or all (every namespace with counts)", 'all', select_options: %w(conversations briefs artifacts entities lists properties all)
-  # ScoutCoder: task input descriptions render as individual CLI options; the first one is the SOPT summary.
+  input :type, :select, 'Namespace to list: conversations, briefs, artifacts, or all', 'all', select_options: %w(conversations briefs artifacts all)
   input :prefix, :string, 'Only names starting with this prefix', nil
   input :offset, :integer, 'Skip the first N entries (pagination)', 0
   input :limit, :integer, 'Maximum entries per page', 50
   task :cortex_list => :text do |type,prefix,offset,limit|
-    type = Cortex.validate_type! type
-    listing_text type, prefix, offset, limit
+    listing_text(type, prefix, offset, limit)
   end
 
   input :query, :string, 'Keyword(s) to search for; multiple terms are ANDed', nil, required: true
-  input :type, :select, "Restrict search: conversations, briefs, artifacts, lists, properties (executions), or all", 'all', select_options: %w(conversations briefs artifacts lists properties all)
-  input :limit, :integer, 'Maximum number of matches to return', 20
+  input :type, :select, 'Restrict search: conversations, briefs, artifacts, or all', 'all', select_options: %w(conversations briefs artifacts all)
+  input :limit, :integer, 'Maximum matches to return', 20
   task :cortex_search => :text do |query,type,limit|
-    type = Cortex.validate_type! type
-    type = nil if type == 'all'
-    limit = 20 if limit.nil? || limit <= 0
-    rows = []
-    unless type == 'artifacts' || type == 'lists'
-      rows += search_conversations(query, 'conversations', limit)
-      rows += search_conversations(query, 'briefs', limit - rows.length) if !type && rows.length < limit
+    limit = 20 if limit.nil?
+    out = []
+    if type == 'all' || type == 'conversations'
+      out += search_conversations(query, 'conversations', limit)
+      out += search_conversations(query, 'briefs', limit)
     end
-    rows += search_artifacts(query, limit - rows.length) if type != 'conversations' && type != 'lists' && rows.length < limit
-    rows += Cortex.search_text_namespace(query, :lists, limit - rows.length) if type != 'conversations' && type != 'artifacts' && rows.length < limit
-    rows += Cortex.search_properties(query, limit - rows.length) if type != 'conversations' && type != 'artifacts' && type != 'lists' && rows.length < limit
-    if rows.empty?
+    out += search_artifacts(query, limit) if type == 'all' || type == 'artifacts'
+    if out.empty?
       "No matches for #{query.inspect}"
     else
-      (['#type' + "\t" + 'name' + "\t" + 'map' + "\t" + 'match'] +
-       rows.collect { |r| r * "\t" }) * "\n" + "\n"
+      out.first(limit).collect { |type, name, map, snippet| "#{type}\t#{name}\t#{map}\t#{snippet}" } * "\n"
     end
   end
 
-  input :name, :string, 'Name of the conversation, brief, artifact, or entity list (artifacts and lists may include subdirs, e.g. claims/C42.md or TF/C01)', nil, required: true, nofile: true
-  input :type, :select, "Namespace of the item to read", 'artifacts', select_options: %w(conversations briefs artifacts lists properties)
-  input :last, :integer, 'Trailing N messages of a conversation/brief (full content)', nil
-  input :range, :string, 'Inclusive message index range "a-b" (e.g. "0-3") of a conversation/brief', nil
+  input :name, :string, 'Name of the conversation, brief, or artifact (artifacts by default)', nil, required: true, nofile: true
+  input :type, :select, 'Namespace of the item to read', 'artifacts', select_options: %w(conversations briefs artifacts)
+  input :last, :integer, 'Trailing N messages of a conversation/brief', nil
+  input :range, :string, 'Inclusive message index range "a-b" of a conversation/brief', nil
   input :start_line, :integer, 'First line to return for artifacts (1-based)', 1
   input :lines, :integer, 'Maximum lines per artifact page', 200
   task :cortex_read => :text do |name,type,last,range,start_line,lines|
     # The task block is evaluated with its exact Scout Step as `self`. Keep the
     # consumer operation on a per-invocation Execution, never ambient/global state.
     execution = Cortex::Execution.begin_task(self)
-    type = Cortex.validate_type! type
-    raise ScoutException, "Unknown Cortex namespace type #{type.inspect}" if type == 'all'
     case type
     when 'conversations', 'briefs'
       Cortex.read_conversation(name, type, last, range)
@@ -63,44 +54,6 @@ module Cortex
       Cortex.persist_artifact_operation(name, map: map, execution: execution, kind: :read,
                                         reference: persisted_reference)
       output
-    when 'lists'
-      entity_type, list = name.split(File::SEPARATOR, 2)
-      entities, meta, _path, map, all_paths = Cortex.read_list(entity_type, list)
-      out = ["Entity list #{name}: #{entities.length} entities"]
-      out << "[note] exists in more than one path map; using :#{map} (#{all_paths * ' | '})" if all_paths.length > 1
-      out << meta.to_s unless meta.empty?
-      out << entities * "\n"
-      out * "\n"
-    when 'properties'
-      type_name, property, label = name.split(File::SEPARATOR, 3)
-      raise ScoutException, "Property execution name must be <Type>/<property>/<label or receiver>" if label.nil? || label.empty?
-      # CURRENT: an address under var/jobs (label may be <id>_<md5>[.ext])
-      ev = Cortex.step_evidence(type_name, property).
-            find { |e| File.basename(e['address'].to_s) == label || e['address'] == name }
-      if ev
-        out = ["Property execution #{ev['address']} (source step_info, CURRENT)",
-               "status: #{ev['status']}  definition: v#{ev['definition_version']} #{ev['definition_digest'][0, 8]}",
-               "first_run: #{ev['first_run']}  last_run: #{ev['last_run']}",
-               "arguments: #{ev['arguments'].inspect}",
-               "info_path: #{ev['info_path']}",
-               'resolve it with cortex_result(address, projection)']
-        next out * "\n"
-      end
-      # HISTORY: LEGACY registry record (receiver-keyed). The
-      # 'examinations' array and the 'property_job' field rendered below
-      # are the retired registry vocabulary, kept verbatim for recall.
-      rec = Cortex.load_execution_record(type_name, property, label)
-      raise ScoutException, "No property execution #{name.inspect}: not a materialized result under var/jobs and no legacy record under var/cortex/properties (list with cortex_list type=properties)" if rec.nil?
-      out = ["Property executions for #{rec['entity_type']}.#{rec['property']} on #{rec['receiver']} (source registry_history, LEGACY)",
-             "first_run: #{rec['first_run']}  last_run: #{rec['last_run']}"]
-      rec['examinations'].each_with_index do |e, i|
-        out << "##{i + 1} arguments=#{e['arguments'].inspect} runs=#{e['runs']}"
-        out << "   property_job=#{e['property_job']}"
-        out << "   definition_version=#{e['definition_version']} digest=#{e['definition_digest']}" if e['definition_digest']
-        out << "   result_digest=#{e['result_digest']}" if e['result_digest']
-        out << "   forced_update" if e['forced_update']
-      end
-      out * "\n"
     end
   end
 

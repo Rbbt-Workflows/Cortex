@@ -17,7 +17,6 @@ require 'Cortex/storage'
 require 'Cortex/conversations'
 require 'Cortex/briefs'
 require 'Cortex/artifacts'
-require 'Cortex/lists'
 require 'Cortex/listing'
 
 class TestCortexListing < Test::Unit::TestCase
@@ -112,15 +111,12 @@ class TestCortexListing < Test::Unit::TestCase
   def test_listing_text_all_uses_the_new_columns
     make_conversation('convo/one', 'text')
     Cortex.write_artifact('claims/C42.md', 'x', :replace, job: 't', agent: 't')
-    Cortex.write_list('TF', 'C01', "TP53\n", description: 'd')
 
     text = Cortex.listing_text('all')
     assert_includes text, "#name\tmap\tmessages\tbytes\tmtime"
     assert_includes text, "#name\tmap\tbytes\tmtime"
-    assert_includes text, "#name\tmap\tentities\tmtime"
     assert_includes text, "convo/one\tcurrent\t2\t"
     assert_includes text, "claims/C42.md\tcurrent\t"
-    assert_includes text, "TF/C01\tcurrent\t1\t"
     refute text =~ /:[a-z]+\t\d+\t/, 'no :map suffix glued onto any name'
   end
 
@@ -130,27 +126,6 @@ class TestCortexListing < Test::Unit::TestCase
     assert_includes text, "#name\tmap\tbytes\tmtime"
     assert_includes text, "claims/default.md\tcurrent\t"
     refute_includes text, "#name\tmap\tmessages\tbytes\tmtime"
-  end
-
-  def test_list_rows_carry_separate_map_column
-    Cortex.write_list('TF', 'C01', "TP53\nMYC\n", description: 'd')
-    rows = Cortex.namespace_listing('lists')
-    row  = rows.find { |r| r[0] == 'TF/C01' }
-    assert row, rows.inspect
-    assert_equal %w(#name map entities mtime), Cortex.listing_header('lists')
-    assert_equal 'TF/C01', row[0]
-    assert_equal 'current', row[1]
-    assert_equal '2', row[2], row.inspect
-  end
-
-  def test_secondary_map_list_row_reports_b
-    list = File.join(@proj_b, 'var/cortex/lists/TF/onlyB.md')
-    FileUtils.mkdir_p(File.dirname(list))
-    File.write(list, "TP53\n")
-    rows = Cortex.namespace_listing('lists')
-    row  = rows.find { |r| r[0] == 'TF/onlyB.md' }
-    assert row, rows.inspect
-    assert_equal 'b', row[1], rows.inspect
   end
 
   # ------------------------------------------------------------------

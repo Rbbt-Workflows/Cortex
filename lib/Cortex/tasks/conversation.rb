@@ -106,7 +106,7 @@ module Cortex
       res = continue.load
       res = Chat.setup(res)
       # :array inputs arrive as a JSON string through some surfaces; accept
-      # both, exactly like entity tasks treat their :text arguments input.
+      # both.
       tools = Cortex.parse_tools_input tools
       save_brief conversation, prompt, res, agent: agent.to_s, job: continue.short_path, tools: tools
       {meta: [{job: continue.short_path}], content: res.answer}

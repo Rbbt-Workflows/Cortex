@@ -4,8 +4,8 @@ require 'json'
 # Cortex storage: THE single path-resolution mechanism
 # ==========================================================================
 #
-# Every cortical element -- conversations, briefs, artifacts, entities and
-# lists -- is addressed as (namespace, full relative path).  Resolution is
+# Every cortical element -- conversations, briefs and artifacts -- is
+# addressed as (namespace, full relative path).  Resolution is
 # full-path based and delegated entirely to Scout's Path machinery:
 #
 #     Cortex.cortex_path(namespace, name)      # => CORTEX[namespace][name]
@@ -23,12 +23,6 @@ require 'json'
 #   conversations/  chat files (Scout chat format)
 #   briefs/         chat files + adjacent .info sidecars
 #   artifacts/      text artifacts + adjacent .info/.files/history sidecars
-#   entities/       <Type>/<property>.rb + adjacent .info/.files (engine-managed,
-#                   see lib/Cortex/entities.rb)
-#   lists/          <entity_type>/<list> newline-separated entity lists
-#                   + adjacent .info sidecars (see lib/Cortex/lists.rb)
-#   properties/     <Type>/<property>/<entity>.json execution records
-#                   (engine-managed registry, see lib/Cortex/properties.rb)
 #
 # Names are arbitrary relative paths (any depth); absolute paths, ~, '..'
 # and control characters are rejected.
@@ -41,15 +35,13 @@ module Cortex
   # configuration runs it behaves exactly like the historical Scout.var.cortex.
   CORTEX = Scout.var.cortex
 
-  # The canonical namespaces, in listing order.  'entities' is engine
-  # managed (lib/Cortex/entities.rb); everything else is plain storage.
-  NAMESPACES = %w(conversations briefs artifacts entities lists properties).freeze
+  # The canonical namespaces, in listing order.
+  NAMESPACES = %w(conversations briefs artifacts).freeze
 
   # Suffix used by #list_name (singular, for error messages).
   SINGULAR = {
     'conversations' => 'conversation', 'briefs' => 'brief',
-    'artifacts' => 'artifact', 'entities' => 'entity property',
-    'lists' => 'entity list', 'properties' => 'property execution'
+    'artifacts' => 'artifact'
   }.freeze
 
   def self.validate_namespace!(namespace)
@@ -158,20 +150,6 @@ module Cortex
     case namespace.to_s
     when 'artifacts' then ["#{resource}.info", "#{resource}.files"]
     when 'briefs' then ["#{resource}.info"]
-    # Entity definitions use the same adjacent sidecars as other resources.
-    # `name` is the compound address "Type/property".
-    when 'entities'
-      type, property = name.split(File::SEPARATOR, 2)
-      raise ScoutException, "Invalid entities resource #{name.inspect}: expected <Type>/<property>" if property.nil? || property.empty?
-      ["#{resource}.info", "#{resource}.files"]
-    # Named entity lists: <entity_type>/<list> + adjacent .info metadata.
-    when 'lists'
-      type, list = name.split(File::SEPARATOR, 2)
-      raise ScoutException, "Invalid lists resource #{name.inspect}: expected <entity_type>/<list>" if list.nil? || list.empty?
-      ["#{resource}.info"]
-# Property executions: <Type>/<property>/<entity>.json; wholly managed by
-# the recording engine (the record IS the metadata, no sidecar store).
-when 'properties' then []
     when 'conversations' then []
     else raise ScoutException, "Unknown Cortex namespace #{namespace}"
     end

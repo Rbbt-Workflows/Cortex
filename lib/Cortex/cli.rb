@@ -71,9 +71,6 @@ module Cortex
     RESERVED_SHORTS = {
       'type' => 't',
       'name' => 'n',
-      'entity' => 'e',
-      'entity_type' => 'et',
-      'property' => 'p',
       'query' => 'q'
     }.freeze
 
@@ -89,19 +86,7 @@ module Cortex
       'cortex_remove' => %w[name type],
       'cortex_move' => %w[name to],
       'cortex_continue' => %w[conversation prompt],
-      'cortex_brief' => %w[conversation prompt],
-      'cortex_write_list' => %w[entity_type list entities],
-      'cortex_read_list' => %w[entity_type list],
-      'cortex_property_list' => %w[entity_type prefix],
-      'cortex_property_read' => %w[entity_type property],
-      'cortex_property_history' => %w[entity_type property],
-      'cortex_property_validate' => %w[entity_type property],
-      'cortex_property_define' => %w[entity_type property],
-      'cortex_property_update' => %w[entity_type property],
-      'cortex_property_remove' => %w[entity_type property],
-      'cortex_property_run' => %w[entity_type property],
-      'cortex_result' => %w[address],
-      'cortex_activity' => %w[entity_type entity]
+      'cortex_brief' => %w[conversation prompt]
     }.freeze
 
     # Summary line of each command (the title of SOPT.doc).
@@ -110,25 +95,13 @@ module Cortex
       'cortex_list' => 'List workspace namespace metadata (default: all)',
       'cortex_read' => 'Read conversations, briefs, or artifacts',
       'cortex_search' => 'Lexically search conversation, brief, and artifact contents',
-      'cortex_activity' => 'Report accumulated workspace activity around ONE entity',
       'cortex_write' => 'Write or append a durable artifact',
       'cortex_edit' => 'Make a targeted, exact text edit to an existing artifact',
       'cortex_rename' => 'Rename a workspace resource in place',
       'cortex_move' => 'Move a workspace resource between path maps',
       'cortex_remove' => 'Remove a workspace resource (irreversible)',
       'cortex_continue' => 'Append a turn to a named conversation, optionally through a briefed agent',
-      'cortex_brief' => 'Create or refresh a reusable agent brief (prompt plus optional tooling)',
-      'cortex_write_list' => 'Write or replace a named entity list',
-      'cortex_read_list' => 'Read the entity ids (and optional meta) of a named entity list',
-      'cortex_property_list' => 'List entity property definitions',
-      'cortex_property_read' => 'Read a property definition body',
-      'cortex_property_history' => 'Show the version history of a property definition',
-      'cortex_property_validate' => 'Validate a candidate property definition (with optional smoke run)',
-      'cortex_property_define' => 'Define (create) a new executable entity property',
-      'cortex_property_update' => 'Update an existing property definition',
-      'cortex_property_remove' => 'Remove a property definition (history is kept)',
-      'cortex_property_run' => 'Run a property for one entity or a named list; returns the run receipt (design 2.3/2.7)',
-      'cortex_result' => 'Resolve a materialized result address; value, info, or path projection (design 2.4)',
+      'cortex_brief' => 'Create or refresh a reusable agent brief (prompt plus optional tooling)'
     }.freeze
 
     # Optional longer command explanation, rendered after the short summary.

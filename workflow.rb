@@ -14,12 +14,10 @@ load File.join(lib, 'Cortex/execution_operation.rb')
 require 'Cortex/conversations'
 require 'Cortex/briefs'
 require 'Cortex/artifacts'
-require 'Cortex/lists'
-require 'Cortex/properties'
 require 'Cortex/listing'
 
 # ==========================================================================
-# Cortex: agent memory across conversations, briefs, artifacts, entities
+# Cortex: agent memory across conversations, briefs, artifacts
 # ==========================================================================
 #
 # workflow.rb is the module skeleton + requires only. Implementation lives
@@ -32,29 +30,10 @@ require 'Cortex/listing'
 #   conversations.rb conversations namespace accessors + persistence
 #   briefs.rb        briefs namespace (chat + .meta sidecar)
 #   artifacts.rb     artifacts write/edit + rename/remove/move
-#   lists.rb         named entity lists (<entity_type>/<list> + .meta)
 #   listing.rb       listing, search, bounded read
-#   entities.rb      entity property engine (+ tasks/entity.rb)
-#   types.rb         Cortex::Types (entity-type modules, identity inputs)
-#   properties_run.rb Cortex::Properties (run dispatch, address resolution,
-#                    the section 2.6 error envelope)
-#   receipt.rb       Cortex::Receipt (the section 2.7 run receipt)
-#   evidence.rb      Step-derived evidence scan (var/jobs .info sidecars)
-#   properties.rb    RETIRED registry, read-only history records
 #
 # Tasks are declared in lib/Cortex/tasks: conversation.rb (continue, brief),
-# listing.rb (list/search/read), artifact.rb (write/edit/rename/remove/move),
-# list.rb (entity lists), entity.rb (property lifecycle: define/update/
-# validate/remove/run + cortex_result resolution).
-#
-# The property subsystem (design/property-subsystem-redesign.md, implemented):
-# entity types are anonymous Workflow modules named exactly <Type>; a property
-# is a task carrying three defaultless definition-identity inputs, so every
-# result address embeds the (version, digest) of the definition that produced
-# it.  Addresses are <Type>/<property>/<label> (Step#short_path); receipts
-# are mechanical projections of the produced Step; the execution registry
-# var/cortex/properties/ is retired (history-only, nothing writes it) and
-# current evidence is the var/jobs Step tree itself.
+# listing.rb (list/search/read), artifact.rb (write/edit/rename/remove/move).
 
 module Cortex
   extend Workflow
@@ -89,19 +68,18 @@ module Cortex
   helper :request_context do |step| Cortex::RequestContext.for_step(step) end
   helper :save_conversation do |conversation,prompt,new| Cortex.save_conversation(conversation, prompt, new) end
   helper :save_brief do |brief,prompt,new,**kw| Cortex.save_brief(brief, prompt, new, **kw) end
-  helper :validate_type! do |type| Cortex.validate_type!(type) end
+  helper :listing_header do |type| Cortex.listing_header(type) end
   helper :namespace_listing do |type,prefix=nil| Cortex.namespace_listing(type, prefix) end
   helper :listing_text do |type,prefix=nil,offset=0,limit=nil| Cortex.listing_text(type, prefix, offset, limit) end
   helper :search_conversations do |query,type=nil,limit=20| Cortex.search_conversations(query, type, limit) end
   helper :search_artifacts do |query,limit=20| Cortex.search_artifacts(query, limit) end
+  helper :read_conversation do |name,type,last=nil,range=nil| Cortex.read_conversation(name, type, last, range) end
+  helper :read_artifact do |name,start_line=1,lines=200| Cortex.read_artifact(name, start_line, lines) end
   helper :conversation_index do |chat| Cortex.conversation_index(chat) end
   helper :conversation_slice do |chat,a,b| Cortex.conversation_slice(chat, a, b) end
   helper :parse_range do |range| Cortex.parse_range(range) end
   helper :cap_string do |text,cap=Cortex::READ_CAP| Cortex.cap_string(text, cap) end
   helper :write_artifact do |path,content,mode=:replace,**kw| Cortex.write_artifact(path, content, mode, **kw) end
-  helper :list_name do |entity_type,list| Cortex.list_name(entity_type, list) end
-  helper :write_list do |entity_type,list,entities,**kw| Cortex.write_list(entity_type, list, entities, **kw) end
-  helper :read_list do |entity_type,list| Cortex.read_list(entity_type, list) end
 
   # Load the agent named by `agent_conversation` (an optional `Agent/brief`
   # pair: the brief is resolved from the briefs namespace and followed into
@@ -143,24 +121,10 @@ module Cortex
   end
 
   require 'Cortex/tasks/conversation'
-  require 'Cortex/tasks/activity'
   require 'Cortex/tasks/listing'
   require 'Cortex/tasks/artifact'
-  require 'Cortex/tasks/list'
 
   export :cortex_continue, :cortex_brief
   export_exec :cortex_list, :cortex_search, :cortex_read, :cortex_write,
-         :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move,
-         :cortex_write_list, :cortex_read_list,
-         #:cortex_property_list, :cortex_property_read, :cortex_property_history,
-         #:cortex_property_validate, :cortex_property_define, :cortex_property_update,
-         #:cortex_property_remove,
-         :cortex_property_run, 
-         :cortex_result, :cortex_activity
+         :cortex_edit, :cortex_rename, :cortex_remove, :cortex_move
 end
-
-# Entity engine (storage + lifecycle + compiler) followed by the thin task
-# layer over it.  Both live outside workflow.rb so the engine stays pure
-# module functions with no workflow declarations.
-require 'Cortex/entities'
-require 'Cortex/tasks/entity'

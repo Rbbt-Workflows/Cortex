@@ -46,11 +46,11 @@ class TestCortexExecutionOperation < Test::Unit::TestCase
 
   def test_type_specific_version_identity_is_optional
     artifact = Cortex::ResourceReference.new(namespace: :artifacts, name: 'claims/C42.md', version: 3, digest: 'sha256:abc123')
-    property = Cortex::ResourceReference.new(namespace: :entities, name: 'Gene/activity', version: 2, digest: 'sha256:abc123')
+    conversation = Cortex::ResourceReference.new(namespace: :conversations, name: 'research/root', version: 2, digest: 'sha256:def456')
     unversioned = Cortex::ResourceReference.new(namespace: :conversations, name: 'research/root')
 
     assert_equal ['artifacts', 'claims/C42.md', 3, 'sha256:abc123'], artifact.identity
-    assert_equal ['entities', 'Gene/activity', 2, 'sha256:abc123'], property.identity
+    assert_equal ['conversations', 'research/root', 2, 'sha256:def456'], conversation.identity
     assert_equal ['conversations', 'research/root', nil, nil], unversioned.identity
   end
 end

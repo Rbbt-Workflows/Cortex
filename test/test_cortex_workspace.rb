@@ -65,22 +65,7 @@ end
 
 purge
 
-# Remove an entity type created by this suite: body dir and adjacent sidecars,
-# across every read map plus the write map. Tightly scoped to the given name.
-def purge_entity_type(type)
-  return unless type.to_s =~ /\A[A-Z][A-Za-z0-9]*\z/
-  (Cortex.read_maps + [Cortex.write_map]).uniq.each do |m|
-    base = Cortex.namespace_dir(:entities, m)
-    next unless base
-    [File.join(base.to_s, type),
-     File.join(base.to_s, type)].each do |d|
-      FileUtils.rm_rf(d) if File.directory?(d)
-    end
-  end
-end
-
 at_exit do
-  ($entity_types || []).compact.each { |t| purge_entity_type(t) }
   purge
 end
 
@@ -95,9 +80,8 @@ def make_conversation(name, msg)
 end
 
 make_conversation(CONV, 'zebra crossing note')
-# Sandbox entity types / scratch artifacts created by the DEFECT checks
-# below; purged at exit so a live run leaves the store exactly as found.
-$entity_types = []
+# Scratch artifacts created by the DEFECT checks below; purged at exit so a
+# live run leaves the store exactly as found.
 $scratch_arts = []
 Cortex.write_artifact(ART, "alpha beta\nsecond line\nthird line\n", :replace, job: 'test', agent: 'tester')
 raise 'test contamination: original artifact lost' unless Open.read(Cortex.resource_path(:artifacts, ART, Cortex.write_map)).include?('second line')
@@ -371,39 +355,6 @@ end
 
 
 # === DEFECT regression checks (appended by 2026-08-26 pass) ===
-
-# DEFECT-1 / DEFECT-2: property bodies bind declared arguments by name and
-# support early `return`. Uses a throwaway entity type so the live registry is
-# untouched.
-check('property bodies bind named arguments and allow early return') do
-  type = "D1Probe#{Time.now.to_i}"
-  res1 = Cortex.job(:cortex_property_define, type,
-                    entity_type: type, property: 'named_args',
-                    body: "{ treatment: treatment, timepoint: timepoint, entity: entity }",
-                    description: 'named argument binding regression',
-                    property_type: 'single', result_type: 'json',
-                    arguments: [{ 'name' => 'treatment' }, { 'name' => 'timepoint' }],
-                    test_entity: 'E2F1', test_arguments: { 'treatment' => 'DMSO', 'timepoint' => '1' }).exec
-
-  res2 = Cortex.job(:cortex_property_define, type,
-                    entity_type: type, property: 'early_return',
-                    body: "return { early: true } if entity == \"E2F1\"\n{ early: false }",
-                    description: 'early return regression',
-                    property_type: 'single', result_type: 'json',
-                    arguments: [],
-                    test_entity: 'E2F1').exec
-  # The smoke test ran each property inside define; verify the compiled
-  # module generation binds declared arguments by name (DEFECT-1) and allows
-  # an early `return` in the author body (DEFECT-2).
-  mod  = Cortex.load_entity_type(type)
-  ent  = mod.setup('E2F1')
-  got1 = ent.named_args('treatment' => 'DMSO', 'timepoint' => '1')
-  raise "NAMED: got #{got1.inspect}" unless got1[:treatment] == 'DMSO' && got1[:timepoint] == '1' && got1[:entity] == 'E2F1'
-  got2 = ent.early_return
-  raise "RETURN: got #{got2.inspect}" unless got2[:early] == true
-ensure
-  purge_entity_type(type)
-end
 
 # DEFECT-4: cortex_write keeps path/name routing under long multi-line content
 check('cortex_write path/name routing survives long multi-line content') do

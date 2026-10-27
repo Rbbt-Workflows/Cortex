@@ -20,9 +20,10 @@ module Cortex
       freeze
     end
 
-    # Cortex property identity is stored in the native producer Step's input
-    # metadata. Read it there rather than consulting a live definition that
-    # may have changed, and never execute the computation to discover it.
+    # Optional definition identity (name/version/digest) is stored in the
+    # native producer Step's input metadata. Read it there rather than
+    # consulting a live definition that may have changed, and never execute
+    # the computation to discover it.
     def self.definition_identity_for(step)
       info = step.info
       names = Array(info[:input_names] || info['input_names']).collect(&:to_s)
@@ -146,47 +147,6 @@ module Cortex
       out['computation'] = computation_reference.identity if computation_reference
       out
     end
-  end
-
-  # Persist use events in the consuming native Step's .files sidecar. Producer
-  # Steps stay untouched; each distinct consumer Step has its own event file.
-  def self.persist_computation_use(operation)
-    raise ScoutException, 'Expected a computation-use Operation' unless
-      Operation === operation && operation.name == 'use_computation' && operation.computation_reference
-    consumer = operation.execution.step
-    directory = consumer.files_dir.to_s
-    Open.mkdir directory
-    path = File.join(directory, 'computation_uses.json')
-    metadata = File.file?(path) ? JSON.parse(Open.read(path)) : { 'events' => [] }
-    events = metadata['events'] ||= []
-    event = operation.to_h
-    event['id'] = "#{operation.execution.step_identity}#use-#{Digest::SHA256.hexdigest(JSON.fast_generate(event))[0, 16]}"
-    events.reject! { |previous| previous['id'] == event['id'] }
-    events << event
-    Open.write path, JSON.pretty_generate(metadata)
-    event
-  end
-
-  def self.computation_use_events(consumer_address)
-  def self.record_computation_use(execution, producer_step)
-    producer = ComputationReference.new(producer_step)
-    operation = Operation.new(execution: execution, name: :use_computation,
-                              computation_reference: producer)
-    execution.record_operation(operation)
-    persist_computation_use(operation)
-  end
-
-    step = if File.exist?(consumer_address.to_s)
-             Step.new(Path.setup(consumer_address.to_s))
-           else
-             Step.load(consumer_address.to_s)
-           end
-    return [] unless step
-    path = File.join(step.files_dir.to_s, 'computation_uses.json')
-    return [] unless File.file?(path)
-    JSON.parse(Open.read(path))['events'] || []
-  rescue JSON::ParserError => error
-    raise ScoutException, "Invalid computation-use metadata for #{consumer_address.inspect}: #{error.message}"
   end
 
   # A logical Cortex address only. Resolving it remains the responsibility of

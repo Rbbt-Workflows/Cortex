@@ -1,5 +1,4 @@
 require_relative 'storage'
-require_relative 'evidence'
 
 # ==========================================================================
 # Cortex listing / search / bounded read
@@ -11,10 +10,6 @@ require_relative 'evidence'
 
 module Cortex
 
-  # 'entities' is an engine-managed namespace (lib/Cortex/entities.rb) and
-  # 'lists' is lib/Cortex/lists.rb; both are addressable through the same
-  # storage helpers, but entity lifecycle is driven by
-  # Cortex.define_property / update_property / remove_property.
   VALID_TYPES = NAMESPACES.dup.freeze
 
   def self.validate_type!(type)
@@ -44,9 +39,6 @@ module Cortex
     case type.to_s
     when 'conversations', 'briefs' then ['#name', 'map', 'messages', 'bytes', 'mtime']
     when 'artifacts' then ['#name', 'map', 'bytes', 'mtime']
-    when 'properties' then ['#name', 'map', 'source', 'status', 'definition', 'receiver/last_run']
-    when 'entities' then ['#name', 'map', 'version', 'digest', 'type', 'mtime']
-    when 'lists' then ['#name', 'map', 'entities', 'mtime']
     end
   end
 
@@ -63,61 +55,14 @@ module Cortex
           [name, map.to_s, chat_messages(chat).length.to_s, File.size(path).to_s,
            File.mtime(path).strftime('%Y-%m-%d %H:%M')]
         end.compact
-    when 'artifacts', 'lists'
+    when 'artifacts'
       namespace_entries(type.to_sym).
         select { |name, _map, _path| prefix.nil? || name.start_with?(prefix) }.
         collect do |name, map, path|
           next nil unless File.file?(path)
-          count = type == 'lists' ? Open.read(path).to_s.split("\n").collect(&:strip).reject(&:empty?).length.to_s : nil
-          row = [name, map.to_s]
-          row << count if count
-          row << File.size(path).to_s
-          row << File.mtime(path).strftime('%Y-%m-%d %H:%M')
-          row
+          [name, map.to_s, File.size(path).to_s,
+           File.mtime(path).strftime('%Y-%m-%d %H:%M')]
         end.compact
-    when 'properties'
-      # Design §4: current = Step sidecars under var/jobs (one row per
-      # materialized result); history = legacy registry records read as-is.
-      require 'json'
-      rows = []
-      Cortex.step_evidence.each do |e|
-        name = [e['entity_type'], e['property'], File.basename(e['address'].to_s)].join('/')
-        next unless prefix.nil? || name.start_with?(prefix)
-        rows << [name, 'var/jobs', 'step_info', e['status'].to_s,
-                 "v#{e['definition_version']} #{e['definition_digest'][0, 8]}",
-                 e['last_run'].to_s]
-      end
-      namespace_entries(:properties).
-        select { |name, _map, _path| prefix.nil? || name.start_with?(prefix) }.
-        each do |name, map, path|
-          next unless File.file?(path)
-          record = JSON.parse(File.read(path)) rescue {}
-          last = Array(record['examinations']).collect { |ex| ex['last_run'].to_s }.max.to_s
-          # LEGACY registry record (history-only store; nothing writes it):
-          # the 'examinations' array and its spelling are the retired
-          # format, kept verbatim for recall.
-          rows << [name, map.to_s, 'registry_history', 'record',
-                   "v#{record['examinations'].to_a.first.to_h['definition_version']} #{record['examinations'].to_a.first.to_h['definition_digest'].to_s[0, 8]}",
-                   last]
-        end
-      rows.sort_by { |r| [r[0], r[1]] }
-    when 'entities'
-      # Group by entity type; each row is one property definition
-      # (Type/property). Metadata is authoritative, including bodyless
-      # inactive tombstones left by remove_property.
-      # Load lazily: listing is also required directly by fresh CLI/test
-      # processes, before the entity engine has necessarily been loaded.
-      require_relative 'entities' unless respond_to?(:property_definitions)
-      Cortex.property_definitions(nil, prefix, active: false).collect do |definition|
-        meta = definition[:meta]
-        body = definition[:body_path]
-        info = definition[:meta_path]
-        timestamp_path = File.file?(body) ? body : info
-        ["#{definition[:entity_type]}/#{definition[:property]}",
-         definition[:map].to_s, meta['version'].to_s,
-         meta['digest'].to_s[0, 8], meta['property_type'].to_s,
-         File.mtime(timestamp_path).strftime('%Y-%m-%d %H:%M')]
-      end
     end
   end
 
@@ -196,27 +141,6 @@ module Cortex
     snip.gsub(/\s+/, ' ').strip
   end
 
-  # Properties namespace search (design §4): matches current Step evidence
-  # (address + definition identity) AND legacy record content (history).
-  def self.search_properties(query, limit)
-    terms = search_terms query
-    out = []
-    step_evidence.each do |e|
-      text = [e['address'], e['property'], e['receiver'], e['definition_digest'],
-              e['arguments'].to_s].join(' ').downcase
-      next unless matches_query?(text, terms)
-      out << ['properties', File.basename(e['address'].to_s), 'var/jobs',
-              "step_info #{e['status']} #{e['address']}"]
-      break if out.length >= limit
-    end
-    remaining = limit - out.length
-    if remaining > 0
-      out += search_text_namespace(query, :properties, remaining)
-    end
-    out.first(limit)
-  end
-
-  # Artifact-like namespaces (artifacts, lists): plain text content search.
   def self.search_text_namespace(query, namespace, limit)
     terms = search_terms query
     out = []

@@ -15,10 +15,10 @@ class TestCortexCLI < Test::Unit::TestCase
   # -- table-driven generation ------------------------------------------
 
   def test_reserved_shorts_are_registered_first_and_win
-    task = Cortex::CLI.load_workflow!.tasks[:cortex_property_read]
+    task = Cortex::CLI.load_workflow!.tasks[:cortex_read]
     shorts = Cortex::CLI.allocate_shorts(task)
-    assert_equal 'et', shorts['entity_type']
-    assert_equal 'p',  shorts['property']
+    assert_equal 't', shorts['type']
+    assert_equal 'n',  shorts['name']
   end
 
   def test_shorts_do_not_collide_across_the_family
@@ -71,7 +71,7 @@ class TestCortexCLI < Test::Unit::TestCase
 
   def test_list_help_describes_default_and_pagination_options
     script = Cortex::CLI.generate_script('cortex_list')
-    assert_includes script, 'If type is omitted, list artifacts'
+    assert_includes script, 'If type is omitted, list all'
     %w[-t--type -p--prefix -o--offset -l--limit].each do |option|
       assert_includes script, option
     end
