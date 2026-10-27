@@ -6,7 +6,7 @@ require 'test/unit'
 require 'scout-ai'
 
 ROOT    = File.expand_path(File.join(File.dirname(__FILE__), '..', '..'))
-SCRATCH = File.join(ROOT, 'tmp', 'entity_test_var')
+SCRATCH = File.join(ROOT, 'tmp', 'cortex_test_var')
 LIBDIR  = File.join(SCRATCH, 'lib')
 USERDIR = File.join(SCRATCH, 'user')
 
