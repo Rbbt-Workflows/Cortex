@@ -87,7 +87,7 @@ tools (see [ToolExposure.md](ToolExposure.md)).
    `Chat.project`.
 5. `cortex_continue` loads that result, `save_conversation` appends the prompt
    and the new messages to `conversations/<name>`, and the task returns
-   `{agent_meta: [...job...], content: answer}`.
+   `{meta: [{job: ...}], content: answer}`.
 
 `cortex_brief` is the same flow with `namespace: :briefs`, `save_brief`, and a
 required `agent` input recorded in the brief sidecar. Its optional `tools`

@@ -42,7 +42,7 @@ cortex_brief(
   workflow, one task, input restriction, `name=value` defaults,
   `noinputs`) is documented with the `cortex_brief` parameters in
   [WorkspaceTools.md](WorkspaceTools.md).
-- The task returns `{agent_meta: [...job...], content: <answer>}`: a receipt
+- The task returns `{meta: [{job: ...}], content: <answer>}`: a receipt
   pointing at the `Cortex/continue` job that produced the brief, plus the
   agent's acknowledgment.
 
@@ -63,7 +63,7 @@ cortex_continue(
 ```
 
 If the conversation does not exist it is created. Each call returns
-`{agent_meta: [...job...], content: <answer>}` and appends to
+`{meta: [{job: ...}], content: <answer>}` and appends to
 `conversations/<name>` a user turn, a `meta: job=Cortex/continue/...` line,
 and the agent's messages.
 

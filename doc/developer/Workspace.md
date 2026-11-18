@@ -38,8 +38,8 @@ Convenience accessors (`conversation_path`, `brief_path`, `artifact_path`,
 `lib/Cortex/path_maps.rb` resolves the storage root per project:
 
 1. **Anchor.** `SCOUT_CHAT_DIR` (set by Scout-AI to the libdir of the chat
-   being executed; inherited by job subprocesses, including the ComputerUse
-   bwrap sandbox), the `Scout::Config` key `cortex.chat_dir`, or, when
+   being executed; inherited by job subprocesses, including the bwrap
+   sandbox of the deprecated ComputerUse workflow), the `Scout::Config` key `cortex.chat_dir`, or, when
    neither is present, the repository containing `Dir.pwd` (a marker-based
    climb to the project root, so a subdirectory still resolves its
    project; nil-safe when the PWD is inside no repository). The anchor
@@ -139,9 +139,10 @@ workflow), so the note below is kept only as history.
 
 HISTORICAL (AGS pilot 2 audit, DEFECT-3 in
 `AGS/var/cortex/artifacts/pilot2/defects.md`): property steps used to
-persist their JSON results under the home jobs tree, which the default
-ComputerUse sandbox does not mount, so from inside that sandbox
-property-step JSON outputs were machine-readable but machine-unreachable.
+persist their JSON results under the home jobs tree, which the
+then-current ComputerUse sandbox did not mount, so from inside that
+sandbox property-step JSON outputs were machine-readable but
+machine-unreachable.
 
 SUPERSEDED 2026-09-14 by the placement rule: entity modules
 rooted their jobs at `:current` — the workflow checkout tree

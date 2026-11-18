@@ -46,8 +46,8 @@ cortex_continue(conversation:, prompt:, agent:)
 - `prompt`: what the contributing agent should do now.
 - `agent`: agent name, optionally `Agent/brief` to load a brief from the
   `briefs` namespace (e.g. `Worker/bash-math`).
-Returns `{agent_meta: [{role: :meta, content: "job=Cortex/continue/..."}],
-content: <answer>}`; the `job=` receipt is the provenance edge into the
+Returns `{meta: [{job: "Cortex/continue/..."}], content: <answer>}`;
+the `job=` receipt is the provenance edge into the
 child execution.
 
 ## `cortex_brief`  -  create/update an agent brief
@@ -70,6 +70,26 @@ cortex_brief(conversation:, prompt:, agent:, tools: [], reply: false)
 - `reply`: `false` (default) stores the prompt (and the tool block when
   given) without running any inference; `true` has the agent draft the
   briefing text and appends its answer.
+
+For example, `tools: ["ScoutCoder help_workflow", "Boolean trap_spaces
+network cft=default", "Baking"]` persists, in array order:
+
+```
+tool: ScoutCoder help_workflow
+tool: Boolean trap_spaces network cft=default
+introduce: Baking
+tool: Baking
+```
+
+A whole-workflow spec (`Baking`) is persisted as BOTH an `introduce: Baking`
+message (the workflow documentation) AND a `tool: Baking` message (every task
+of the workflow as a tool, full inputs). A task-level spec persists one
+`tool:` line with the spec pasted verbatim; bare input names restrict the
+accepted inputs, `name=value` pre-fills and hides an input, and
+`noinputs`/`none` as the sole input token exposes the task with no inputs.
+Validation is syntax only; workflows and tasks are resolved when the brief
+is used. Briefing runs no inference pass by default, so a brief can be
+prepared without spending a model call.
 
 ## `cortex_list`  -  metadata-only listing
 

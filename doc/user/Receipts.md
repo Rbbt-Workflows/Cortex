@@ -16,19 +16,19 @@ Cortex conversations.
 
 ## The receipt contract
 
-`cortex_continue` and `cortex_brief` return exactly:
+`cortex_continue` and `cortex_brief` (with `reply: true`) return exactly:
 
 ```json
 {
-  "agent_meta": [{"role": "meta", "content": "job=Cortex/continue/Default_....chat"}],
-  "content": "The agent's answer text."
+  "content": "The agent's answer text.",
+  "meta": [{"job": "Cortex/continue/Default_....chat"}]
 }
 ```
 
 - `content` is the semantic result: the agent's answer.
-- `agent_meta` carries the **job** that produced it. The job is a foreign
-  key; everything else (the full child chat, tool calls, artifacts, token
-  counts) can be obtained by following it.
+- `meta` carries the **job** that produced it. The job is a foreign key;
+  everything else (the full child chat, tool calls, artifacts, token counts)
+  can be obtained by following it.
 
 The receipt is deliberately minimal. Do not add timestamps or artifact lists
 to it; the job knows all of that.
@@ -41,7 +41,7 @@ function call and its output carrying the receipt:
 ```
 function_call: {"name":"cortex_continue","arguments":{...},"id":"call_..."}
 function_call_output: {"name":"cortex_continue","content":"The agent's answer...",
-  "agent_meta":[{"role":"meta","content":"job=Cortex/continue/Default_....chat"}],
+  "meta":[{"job":"Cortex/continue/Default_....chat"}],
   "step":"Cortex/cortex_continue/Default_....json"}
 ```
 

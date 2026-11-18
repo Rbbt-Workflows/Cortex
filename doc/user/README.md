@@ -20,21 +20,24 @@ navigation, management, and provenance.
 
 ### I want to run agents inside Cortex conversations
 
-Read the [user documentation](user/). It explains the workspace layout,
-briefing agents, continuing conversations, searching and reading research
-objects, writing and managing artifacts, and following delegation receipts.
-For command-line access the same tasks are wrapped as `scout cortex`
-subcommands ([user/CortexCLI.md](user/CortexCLI.md)).
+Read the [user documentation](./) — the files beside this one. Start with
+the [recommended use cycle](Recommended-use.md) (discover → locate →
+inspect → contribute → consolidate → manage, with examples and etiquette),
+then the [workspace model](Workspace.md), [conversations and
+briefs](Conversations.md), the [tool reference](WorkspaceTools.md), and
+[delegation receipts](Receipts.md). For command-line access the same tasks
+are wrapped as `scout cortex` subcommands ([CortexCLI.md](CortexCLI.md)).
 
 ### I want to change how Cortex works
 
-Read the [developer documentation](developer/). It covers the architecture,
+Read the [developer documentation](../developer/). It covers the architecture,
 the path-map storage abstraction behind all tools, artifact versioning and
 provenance, tool exposure, and the receipt mechanism. Known gaps and
-deliberately deferred work are tracked in [Improvements](developer/Improvements.md).
+deliberately deferred work are tracked in
+[Improvements](../developer/Improvements.md).
 
 ### I want to know why it looks like this
 
-Read [research/](research/): design decisions (including the
+Read [../../research/](../../research/): design decisions (including the
 workspace-management pass), findings, the archived invariant test run, and
 the critique record.
